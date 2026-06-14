@@ -1,0 +1,1395 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>전시대 배정</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif; background: #f0f2f5; color: #1a1a1a; min-height: 100vh; }
+
+.screen { display: none; min-height: 100vh; }
+.screen.active { display: block; }
+
+/* Header */
+.header { background: #2c5f2e; color: white; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 50; }
+.header h1 { font-size: 17px; font-weight: 700; }
+.header-sub { font-size: 11px; opacity: 0.8; }
+.btn-logout { background: none; border: 1px solid rgba(255,255,255,0.5); color: white; font-size: 12px; padding: 5px 10px; border-radius: 6px; cursor: pointer; }
+
+/* Login */
+.login-wrap { padding: 40px 20px; max-width: 400px; margin: 0 auto; }
+.login-logo { text-align: center; font-size: 52px; margin-bottom: 16px; }
+.login-card { background: white; border-radius: 16px; padding: 28px 24px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+.login-card h2 { text-align: center; font-size: 20px; color: #2c5f2e; margin-bottom: 6px; }
+.login-card p { text-align: center; color: #888; font-size: 13px; margin-bottom: 24px; }
+
+/* Form */
+.form-group { margin-bottom: 14px; }
+.form-group label { display: block; font-size: 12px; color: #666; margin-bottom: 5px; font-weight: 600; }
+input[type="text"], input[type="password"], input[type="date"], input[type="time"], input[type="number"], select, textarea {
+  width: 100%; padding: 11px 14px; border: 1.5px solid #e0e0e0; border-radius: 10px;
+  font-size: 16px; outline: none; transition: border-color 0.2s; font-family: inherit; color: #1a1a1a;
+}
+input:focus, select:focus, textarea:focus { border-color: #2c5f2e; }
+textarea { resize: vertical; min-height: 70px; }
+
+/* Buttons */
+.btn { display: block; width: 100%; padding: 13px; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.15s; font-family: inherit; text-align: center; }
+.btn-primary { background: #2c5f2e; color: white; }
+.btn-primary:active { background: #1e4220; }
+.btn-secondary { background: #f0f2f5; color: #444; }
+.btn-secondary:active { background: #e0e2e5; }
+.btn-danger { background: #e53935; color: white; }
+.btn-danger:active { background: #c62828; }
+.btn-sm { padding: 7px 12px; font-size: 13px; border-radius: 8px; width: auto; display: inline-block; }
+.btn-outline { background: white; border: 1.5px solid #2c5f2e; color: #2c5f2e; }
+
+/* Tabs */
+.tabs { display: flex; background: white; border-bottom: 2px solid #eee; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.tab { flex: 1; padding: 12px 6px; text-align: center; font-size: 12px; color: #999; cursor: pointer; white-space: nowrap; border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all 0.2s; }
+.tab.active { color: #2c5f2e; border-bottom-color: #2c5f2e; font-weight: 700; }
+
+.tab-content { display: none; padding: 14px 16px 80px; }
+.tab-content.active { display: block; }
+
+/* Cards */
+.card { background: white; border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
+
+/* Banner */
+.ev-banner { background: linear-gradient(135deg, #2c5f2e 0%, #4a7c4e 100%); color: white; border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; cursor: pointer; }
+.ev-banner h3 { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+.ev-banner p { font-size: 12px; opacity: 0.88; line-height: 1.6; }
+.ev-banner.selected { box-shadow: 0 0 0 3px #f5c518; }
+
+/* Time slot picker */
+.time-slot-btn { display: block; width: 100%; padding: 13px 16px; margin-bottom: 8px; border: 1.5px solid #e0e0e0; border-radius: 10px; background: white; font-size: 15px; font-family: inherit; cursor: pointer; text-align: left; color: #333; transition: all 0.15s; }
+.time-slot-btn.selected { background: #e8f5e9; border-color: #2c5f2e; color: #1b5e20; font-weight: 700; }
+.time-slot-btn.full { background: #f5f5f5; border-color: #e0e0e0; color: #bbb; cursor: not-allowed; }
+.time-slot-btn .slot-count { float: right; font-size: 12px; font-weight: 400; color: #888; }
+.time-slot-btn.selected .slot-count { color: #2c5f2e; }
+
+/* Registration status */
+.reg-status { text-align: center; padding: 28px 16px; }
+.reg-icon { font-size: 52px; margin-bottom: 12px; }
+.reg-status h3 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+.reg-status p { color: #666; font-size: 14px; margin-bottom: 20px; }
+
+/* Chips */
+.chip { display: inline-flex; align-items: center; background: #e8f5e9; color: #2c5f2e; border-radius: 20px; padding: 7px 14px; font-size: 14px; margin: 3px; cursor: pointer; border: 1.5px solid transparent; font-weight: 500; transition: all 0.15s; user-select: none; }
+.chip.selected { background: #2c5f2e; color: white; }
+.chip.done { background: #fff3e0; color: #e65100; }
+
+/* Pair member drag chip */
+.pair-member { display: inline-flex; align-items: center; gap: 4px; background: #e8f5e9; color: #1b5e20; border-radius: 16px; padding: 4px 10px; font-size: 13px; font-weight: 600; margin: 2px; cursor: grab; border: 1.5px solid transparent; user-select: none; }
+.pair-member:active { cursor: grabbing; }
+.pair-member.dragging { opacity: 0.4; }
+.pair-card.drag-over { border-color: #2c5f2e !important; background: #f0f8f0; }
+.chip-pool { display: flex; flex-wrap: wrap; padding: 4px 0; }
+
+/* Assignment slots */
+.slot-row { display: flex; align-items: stretch; margin-bottom: 6px; gap: 6px; }
+.slot-time { width: 64px; min-width: 64px; font-size: 11px; color: #666; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; font-weight: 600; line-height: 1.4; }
+.slot-cells { display: flex; flex: 1; gap: 6px; }
+.slot-cell { flex: 1; background: #fafafa; border-radius: 8px; padding: 8px; min-height: 52px; border: 1.5px dashed #ddd; cursor: pointer; transition: all 0.15s; }
+.slot-cell:active { background: #f0f8f0; }
+.slot-cell.has-members { border-color: #4caf50; border-style: solid; background: #e8f5e9; }
+.m-name { font-size: 12px; color: #1b5e20; font-weight: 600; display: flex; align-items: center; justify-content: space-between; padding: 1px 0; }
+.m-name .x { color: #e53935; font-size: 14px; font-weight: 700; padding: 0 2px; cursor: pointer; }
+.slot-hint { color: #ccc; font-size: 11px; }
+
+/* Selected bar */
+.sel-bar { background: #2c5f2e; color: white; padding: 11px 14px; border-radius: 10px; margin-bottom: 10px; display: none; align-items: center; justify-content: space-between; }
+.sel-bar.show { display: flex; }
+.sel-bar span { font-size: 13px; font-weight: 600; }
+.sel-x { background: none; border: none; color: white; font-size: 20px; cursor: pointer; line-height: 1; padding: 0 4px; }
+
+/* Members list */
+.m-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #f5f5f5; }
+.m-item:last-child { border: none; }
+.m-item-btns { display: flex; gap: 6px; }
+
+/* Output */
+#out-table-wrap { padding: 12px; overflow-x: auto; }
+
+/* Step indicator */
+.step-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+.step { font-size: 12px; color: #bbb; font-weight: 600; }
+.step.active { color: #2c5f2e; }
+.step-arrow { color: #ddd; font-size: 12px; }
+
+/* Back button */
+.back-btn { display: flex; align-items: center; gap: 6px; color: #2c5f2e; font-size: 14px; font-weight: 600; cursor: pointer; margin-bottom: 14px; background: none; border: none; padding: 0; font-family: inherit; }
+
+/* Utils */
+.text-center { text-align: center; }
+.text-muted { color: #999; font-size: 13px; }
+.mt-8 { margin-top: 8px; }
+.mt-12 { margin-top: 12px; }
+.mt-16 { margin-top: 16px; }
+.mb-8 { margin-bottom: 8px; }
+.mb-12 { margin-bottom: 12px; }
+.sec-title { font-size: 14px; font-weight: 700; color: #333; margin-bottom: 10px; }
+.err { color: #e53935; font-size: 13px; margin-top: 8px; text-align: center; }
+.flex { display: flex; }
+.flex-between { display: flex; justify-content: space-between; align-items: center; }
+.gap-8 { gap: 8px; }
+.loading { text-align: center; padding: 40px 16px; color: #aaa; font-size: 14px; }
+.loc-title { font-size: 13px; font-weight: 700; color: #2c5f2e; margin-bottom: 8px; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.badge-orange { background: #fff3e0; color: #e65100; }
+.badge-green { background: #e8f5e9; color: #2c5f2e; }
+
+/* Modal */
+.modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200; align-items: flex-end; }
+.modal-bg.show { display: flex; }
+.modal { background: white; border-radius: 20px 20px 0 0; padding: 20px 18px 40px; width: 100%; max-height: 85vh; overflow-y: auto; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.modal-head h3 { font-size: 17px; font-weight: 700; }
+.modal-close { background: none; border: none; font-size: 22px; color: #888; cursor: pointer; line-height: 1; }
+.row-2 { display: flex; gap: 10px; }
+.row-2 > * { flex: 1; }
+
+/* Reg summary card */
+.reg-summary { background: #e8f5e9; border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+.reg-summary .rs-name { font-size: 14px; font-weight: 700; color: #1b5e20; }
+.reg-summary .rs-time { font-size: 13px; color: #2c5f2e; margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="screen-login" class="screen active">
+  <div class="login-wrap">
+    <div class="login-logo">
+      <svg width="90" height="100" viewBox="0 0 90 100" xmlns="http://www.w3.org/2000/svg">
+        <!-- 프레임 왼쪽 세로 -->
+        <rect x="14" y="5" width="5" height="82" rx="2.5" fill="#222"/>
+        <!-- 프레임 오른쪽 세로 -->
+        <rect x="65" y="5" width="5" height="82" rx="2.5" fill="#222"/>
+        <!-- 손잡이 상단 가로 -->
+        <rect x="14" y="5" width="56" height="5" rx="2.5" fill="#222"/>
+
+        <!-- 상단 사인 패널 (흰색) -->
+        <rect x="19" y="10" width="51" height="18" rx="1" fill="#ffffff" stroke="#222" stroke-width="1.5"/>
+
+        <!-- 선반 1 -->
+        <rect x="14" y="30" width="60" height="4" rx="2" fill="#222"/>
+        <!-- 선반1 책들 -->
+        <rect x="18" y="20" width="12" height="11" rx="1" fill="#90caf9"/>
+        <rect x="31" y="20" width="12" height="11" rx="1" fill="#a5d6a7"/>
+        <rect x="44" y="20" width="12" height="11" rx="1" fill="#ffe082"/>
+
+        <!-- 선반 2 -->
+        <rect x="14" y="52" width="60" height="4" rx="2" fill="#222"/>
+        <!-- 선반2 책들 -->
+        <rect x="18" y="42" width="12" height="11" rx="1" fill="#ce93d8"/>
+        <rect x="31" y="42" width="12" height="11" rx="1" fill="#80deea"/>
+        <rect x="44" y="42" width="12" height="11" rx="1" fill="#ffab91"/>
+
+        <!-- 선반 3 (바닥) -->
+        <rect x="14" y="74" width="60" height="4" rx="2" fill="#222"/>
+        <!-- 선반3 책들 -->
+        <rect x="18" y="64" width="12" height="11" rx="1" fill="#bcaaa4"/>
+        <rect x="31" y="64" width="12" height="11" rx="1" fill="#90caf9"/>
+        <rect x="44" y="64" width="12" height="11" rx="1" fill="#a5d6a7"/>
+
+        <!-- 바퀴 (오른쪽 큰 바퀴) -->
+        <circle cx="68" cy="88" r="8" fill="#333"/>
+        <circle cx="68" cy="88" r="4" fill="#666"/>
+        <line x1="68" y1="81" x2="68" y2="95" stroke="#444" stroke-width="1.5"/>
+        <line x1="61" y1="88" x2="75" y2="88" stroke="#444" stroke-width="1.5"/>
+
+        <!-- 바닥 발 (왼쪽) -->
+        <rect x="14" y="86" width="16" height="4" rx="2" fill="#222"/>
+        <rect x="14" y="86" width="4" height="8" rx="2" fill="#222"/>
+      </svg>
+    </div>
+    <div class="login-card">
+      <h2>전시대 배정</h2>
+      <p>이름을 입력해 주세요</p>
+      <div class="form-group">
+        <label>이름</label>
+        <input type="text" id="inp-name" placeholder="홍길동" autocomplete="off" autocorrect="off">
+      </div>
+      <div class="form-group" id="pw-wrap" style="display:none">
+        <label>비밀번호 (인도자)</label>
+        <input type="password" id="inp-pw" placeholder="비밀번호">
+      </div>
+      <div id="login-err" class="err"></div>
+      <button class="btn btn-primary mt-12" onclick="doLogin()">확인</button>
+    </div>
+  </div>
+</div>
+
+<!-- MEMBER -->
+<div id="screen-member" class="screen">
+  <div class="header">
+    <div>
+      <div class="header-sub">전시대 봉사 신청</div>
+      <h1 id="m-name-hdr"></h1>
+    </div>
+    <button class="btn-logout" onclick="doLogout()">로그아웃</button>
+  </div>
+  <div id="m-content" style="padding:14px 16px 40px"></div>
+</div>
+
+<!-- LEADER -->
+<div id="screen-leader" class="screen">
+  <div class="header">
+    <div>
+      <div class="header-sub">인도자</div>
+      <h1 id="l-name-hdr"></h1>
+    </div>
+    <button class="btn-logout" onclick="doLogout()">로그아웃</button>
+  </div>
+  <div class="tabs">
+    <div class="tab active" onclick="gotoTab('jsd')">🏛️ 전시대</div>
+    <div class="tab" onclick="gotoTab('members')">👥 명단</div>
+    <div class="tab" onclick="gotoTab('assign')">📋 배정</div>
+    <div class="tab" onclick="gotoTab('output')">🖼️ 출력</div>
+    <div class="tab" onclick="gotoTab('signup')">🙋 봉사신청</div>
+  </div>
+
+  <!-- TAB: 전시대 운영 -->
+  <div id="tab-jsd" class="tab-content active">
+    <button class="btn btn-primary mb-12" onclick="openEvModal()">+ 새 전시대 운영 만들기</button>
+    <div class="sec-title">예정된 전시대 운영</div>
+    <div id="jsd-upcoming"></div>
+    <div class="sec-title mt-16">지난 전시대</div>
+    <div id="jsd-past"></div>
+  </div>
+
+  <!-- TAB: 명단 -->
+  <div id="tab-members" class="tab-content">
+    <div class="card">
+      <div class="sec-title">참가자 명단</div>
+      <div class="flex gap-8 mb-8">
+        <input type="text" id="inp-new-member" placeholder="이름 입력" style="flex:1">
+        <select id="inp-new-gender" style="width:80px;padding:11px 8px;border:1.5px solid #e0e0e0;border-radius:10px;font-size:14px">
+          <option value="형제">형제</option>
+          <option value="자매">자매</option>
+        </select>
+        <button class="btn btn-primary btn-sm" onclick="addMember()">추가</button>
+      </div>
+      <div id="members-list"></div>
+    </div>
+    <div class="card mt-12">
+      <div class="sec-title">인도자 관리</div>
+      <div class="row-2 mb-8">
+        <input type="text" id="inp-new-leader" placeholder="이름">
+        <input type="password" id="inp-new-lpw" placeholder="비밀번호">
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="addLeader()">+ 인도자 추가</button>
+      <div id="leaders-list" class="mt-8"></div>
+    </div>
+  </div>
+
+  <!-- TAB: 배정 -->
+  <div id="tab-assign" class="tab-content">
+    <div id="assign-ev-select">
+      <div class="sec-title">전시대 선택</div>
+      <div id="assign-ev-list"></div>
+    </div>
+    <div id="assign-body" style="display:none">
+      <button class="back-btn" onclick="backToEvSelect()">← 전시대 목록</button>
+      <div id="assign-ev-info"></div>
+
+      <!-- STEP 1: 짝 만들기 -->
+      <div class="card">
+        <div class="flex-between mb-8">
+          <div class="sec-title" style="margin:0">① 짝 만들기 <span id="reg-cnt" style="color:#2c5f2e;font-weight:400;font-size:13px"></span></div>
+          <button class="btn btn-secondary btn-sm" onclick="autoMakePairs()">⚡ 자동 짝 만들기</button>
+        </div>
+        <p class="text-muted mb-8" style="font-size:11px">이름 탭 → 선택 → 짝 만들기 버튼</p>
+        <div id="reg-pool" class="chip-pool"></div>
+        <button class="btn btn-outline mt-8" id="make-pair-btn" onclick="makePair()" style="opacity:0.4" disabled>짝 만들기 (선택 없음)</button>
+      </div>
+
+      <!-- STEP 2: 짝 목록 -->
+      <div class="card">
+        <div class="flex-between mb-8">
+          <div class="sec-title" style="margin:0">② 짝 순서 <span style="color:#888;font-size:11px;font-weight:400">드래그로 변경</span></div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-outline btn-sm" onclick="addLateJoiners()">➕ 늦은 신청자</button>
+            <button class="btn btn-danger btn-sm" onclick="resetPairs()">초기화</button>
+          </div>
+        </div>
+        <div id="pairs-list"></div>
+        <button class="btn btn-primary mt-8" onclick="assignPairsToSlots()">📋 배정 시작</button>
+      </div>
+
+      <!-- STEP 3: 배정 결과 -->
+      <div id="slots-wrap"></div>
+    </div>
+  </div>
+
+  <!-- TAB: 봉사신청 (인도자용) -->
+  <div id="tab-signup" class="tab-content">
+    <div id="l-signup-content"></div>
+  </div>
+
+  <!-- TAB: 출력 -->
+  <div id="tab-output" class="tab-content">
+    <div id="out-ev-select">
+      <div class="sec-title">전시대 선택</div>
+      <div id="out-ev-list"></div>
+    </div>
+    <div id="out-body" style="display:none">
+      <button class="back-btn" onclick="backToOutSelect()">← 전시대 목록</button>
+      <button class="btn btn-primary mb-8" onclick="saveImage()">📥 이미지 저장</button>
+      <div style="background:white;border-radius:12px;overflow-x:auto;">
+        <div id="out-table-wrap"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- EVENT MODAL -->
+<div id="ev-modal" class="modal-bg">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="ev-modal-title">새 전시대 운영 만들기</h3>
+      <button class="modal-close" onclick="closeModal('ev-modal')">✕</button>
+    </div>
+    <div class="form-group">
+      <label>날짜</label>
+      <input type="date" id="ev-date">
+    </div>
+    <div class="form-group">
+      <label>제목 (예: 금요일 장날)</label>
+      <input type="text" id="ev-title" placeholder="선택사항">
+    </div>
+    <div class="form-group">
+      <label>전시대 장소 (여러 곳이면 줄바꿈으로 구분)</label>
+      <textarea id="ev-locs" placeholder="A 장소&#10;B 장소"></textarea>
+    </div>
+    <div class="row-2">
+      <div class="form-group">
+        <label>시작 시간</label>
+        <input type="time" id="ev-start">
+      </div>
+      <div class="form-group">
+        <label>종료 시간</label>
+        <input type="time" id="ev-end">
+      </div>
+    </div>
+    <div class="row-2">
+      <div class="form-group">
+        <label>배정 간격 (분)</label>
+        <input type="number" id="ev-interval" value="15" min="5" max="60">
+      </div>
+      <div class="form-group">
+        <label>그룹 크기</label>
+        <select id="ev-grp">
+          <option value="2">2명</option>
+          <option value="3">3명</option>
+        </select>
+      </div>
+    </div>
+    <input type="hidden" id="ev-edit-id">
+    <button class="btn btn-primary" id="ev-modal-btn" onclick="saveEv()">전시대 운영 생성</button>
+  </div>
+</div>
+
+<script>
+const SUPA_URL = 'https://pbwkvxhfhpjtomqypfcz.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBid2t2eGhmaHBqdG9tcXlwZmN6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzNzQzOTIsImV4cCI6MjA5Njk1MDM5Mn0.FfGNJHi2FvAiBrwEBmwCA9ZfHAinaUX2R_ldvA0AoUc';
+const db = supabase.createClient(SUPA_URL, SUPA_KEY);
+
+const S = {
+  user: null,
+  selEv: null,        // selected event (assign/output tab)
+  regs: [],
+  assigns: {},
+  selMember: null,
+  // member flow
+  mStep: 'list',      // 'list' | 'time' | 'done'
+  mSelEv: null,       // event member picked
+  mSelSlots: [],      // time slots member picked
+  mExistReg: null,    // existing registration
+};
+
+// ── SCREENS ──────────────────────────────────────────────
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + id).classList.add('active');
+}
+
+function gotoTab(name) {
+  const tabs = ['jsd','members','assign','output','signup'];
+  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', tabs[i] === name));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  if (name === 'jsd')     loadJsdTab();
+  if (name === 'members') loadMembersTab();
+  if (name === 'assign')  loadAssignEvSelect();
+  if (name === 'output')  loadOutEvSelect();
+  if (name === 'signup')  leaderSignupList();
+}
+
+function doLogout() {
+  S.user = null; S.selEv = null; S.selMember = null;
+  loginLeader = null;
+  ['inp-name','inp-pw'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('pw-wrap').style.display = 'none';
+  document.getElementById('login-err').textContent = '';
+  showScreen('login');
+}
+
+function openModal(id)  { document.getElementById(id).classList.add('show'); }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+document.querySelectorAll('.modal-bg').forEach(el =>
+  el.addEventListener('click', e => { if (e.target === el) el.classList.remove('show'); }));
+
+// ── LOGIN ─────────────────────────────────────────────────
+let loginLeader = null;
+document.getElementById('inp-name').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+document.getElementById('inp-pw').addEventListener('keydown',  e => { if (e.key === 'Enter') doLogin(); });
+
+async function doLogin() {
+  const name  = document.getElementById('inp-name').value.trim();
+  const pw    = document.getElementById('inp-pw').value.trim();
+  const errEl = document.getElementById('login-err');
+  errEl.textContent = '';
+  if (!name) { errEl.textContent = '이름을 입력해주세요.'; return; }
+
+  const pwShown = document.getElementById('pw-wrap').style.display !== 'none';
+
+  if (!pwShown) {
+    const { data: leader } = await db.from('leaders').select('*').eq('name', name).maybeSingle();
+    if (leader) {
+      loginLeader = leader;
+      document.getElementById('pw-wrap').style.display = 'block';
+      document.getElementById('inp-pw').focus();
+      return;
+    }
+    const { data: member } = await db.from('members').select('*').eq('name', name).eq('active', true).maybeSingle();
+    if (member) {
+      S.user = { type: 'member', id: member.id, name: member.name };
+      document.getElementById('m-name-hdr').textContent = member.name;
+      showScreen('member');
+      memberShowList();
+      return;
+    }
+    errEl.textContent = '명단에 없는 이름입니다.';
+  } else {
+    if (!pw) { errEl.textContent = '비밀번호를 입력해주세요.'; return; }
+    if (loginLeader.password !== pw) { errEl.textContent = '비밀번호가 틀렸습니다.'; return; }
+    S.user = { type: 'leader', id: loginLeader.id, name: loginLeader.name };
+    document.getElementById('l-name-hdr').textContent = loginLeader.name;
+    showScreen('leader');
+    loadJsdTab();
+  }
+}
+
+// ── MEMBER FLOW ───────────────────────────────────────────
+// Step 1: 전시대 목록 선택
+async function memberShowList() {
+  const el = document.getElementById('m-content');
+  el.innerHTML = '<div class="loading">⏳ 불러오는 중...</div>';
+
+  const today = new Date().toISOString().split('T')[0];
+  const { data: evs } = await db.from('events')
+    .select('*').eq('is_active', true).gte('date', today).order('date');
+
+  if (!evs || evs.length === 0) {
+    el.innerHTML = `<div class="reg-status"><div class="reg-icon">📭</div><h3>예정된 전시대가 없습니다</h3><p class="text-muted">인도자가 전시대 운영을 등록하면 여기에 표시됩니다.</p></div>`;
+    return;
+  }
+
+  // 이미 신청한 이벤트 목록
+  const { data: myRegs } = await db.from('registrations').select('*').eq('member_id', S.user.id);
+  const regMap = {};
+  (myRegs || []).forEach(r => { regMap[r.event_id] = r; });
+
+  el.innerHTML = `
+    <div class="sec-title">전시대를 선택하세요</div>
+    ${evs.map(ev => {
+      const reg = regMap[ev.id];
+      const locs = (ev.locations || []).join(', ');
+      return `
+        <div class="ev-banner ${reg ? 'selected' : ''}" onclick="memberPickEv('${ev.id}')">
+          <h3>📅 ${fmtDate(ev.date)} ${ev.title ? '· ' + ev.title : ''}</h3>
+          <p>🕐 ${ev.start_time} ~ ${ev.end_time} &nbsp;|&nbsp; 📍 ${locs}</p>
+          ${reg ? `<p style="margin-top:6px;font-size:12px;background:rgba(255,255,255,0.2);border-radius:6px;padding:4px 8px;display:inline-block">✅ 신청완료 · ${(reg.time_slots||[]).join(', ')}</p>` : '<p style="margin-top:6px;font-size:12px;opacity:0.7">탭해서 신청하기 →</p>'}
+        </div>`;
+    }).join('')}`;
+}
+
+async function memberPickEv(evId) {
+  const el = document.getElementById('m-content');
+  el.innerHTML = '<div class="loading">⏳ 불러오는 중...</div>';
+
+  const { data: ev } = await db.from('events').select('*').eq('id', evId).maybeSingle();
+  S.mSelEv = ev;
+
+  // 기존 신청 확인
+  const { data: reg } = await db.from('registrations').select('*').eq('event_id', evId).eq('member_id', S.user.id).maybeSingle();
+  S.mExistReg = reg;
+  S.mSelSlots = reg ? [...(reg.time_slots || [])] : [];
+
+  // 전시대 신청자 현황 (slot별 카운트)
+  const { data: allRegs } = await db.from('registrations').select('time_slots').eq('event_id', evId);
+  const slotCount = {};
+  (allRegs || []).forEach(r => {
+    (r.time_slots || []).forEach(s => { slotCount[s] = (slotCount[s] || 0) + 1; });
+  });
+
+  const hourSlots = getHourSlots(ev.start_time, ev.end_time);
+  const locs = ev.locations || [];
+  const maxPerSlot = locs.length * ev.group_size * 10; // 여유있게
+
+  const lbl = (ev.locations || []).join(', ');
+  el.innerHTML = `
+    <button class="back-btn" onclick="memberShowList()">← 전시대 목록</button>
+    <div class="ev-banner" style="cursor:default;margin-bottom:14px">
+      <h3>📅 ${fmtDate(ev.date)} ${ev.title ? '· ' + ev.title : ''}</h3>
+      <p>🕐 ${ev.start_time} ~ ${ev.end_time} &nbsp;|&nbsp; 📍 ${lbl}</p>
+    </div>
+    <div class="sec-title">참여 가능한 시간을 선택하세요 (복수 선택 가능)</div>
+    <div id="slot-btns">
+      ${hourSlots.map(sl => {
+        const label = `${sl.start} ~ ${sl.end}`;
+        const cnt = slotCount[label] || 0;
+        const isSel = S.mSelSlots.includes(label);
+        return `<button class="time-slot-btn ${isSel ? 'selected' : ''}" onclick="toggleSlot('${label}', this)">
+          ${label} <span class="slot-count">${cnt}명 신청</span>
+        </button>`;
+      }).join('')}
+    </div>
+    <div id="slot-err" class="err"></div>
+    <button class="btn btn-primary mt-12" onclick="submitReg('${evId}')">
+      ${reg ? '신청 수정하기' : '신청하기'}
+    </button>
+    ${reg ? `<button class="btn btn-danger mt-8" onclick="cancelReg('${evId}','${reg.id}')">신청 취소</button>` : ''}`;
+}
+
+function toggleSlot(label, btn) {
+  const idx = S.mSelSlots.indexOf(label);
+  if (idx >= 0) {
+    S.mSelSlots.splice(idx, 1);
+    btn.classList.remove('selected');
+  } else {
+    S.mSelSlots.push(label);
+    btn.classList.add('selected');
+  }
+}
+
+async function submitReg(evId) {
+  if (S.mSelSlots.length === 0) {
+    document.getElementById('slot-err').textContent = '시간을 하나 이상 선택해주세요.';
+    return;
+  }
+  document.getElementById('slot-err').textContent = '';
+
+  if (S.mExistReg) {
+    await db.from('registrations').update({ time_slots: S.mSelSlots }).eq('id', S.mExistReg.id);
+  } else {
+    await db.from('registrations').insert({
+      event_id: evId, member_id: S.user.id, member_name: S.user.name, time_slots: S.mSelSlots
+    });
+  }
+
+  const el = document.getElementById('m-content');
+  el.innerHTML = `
+    <div class="reg-status">
+      <div class="reg-icon">✅</div>
+      <h3>신청 완료!</h3>
+      <p>${S.user.name}님 신청이 완료되었습니다.</p>
+      <div class="reg-summary">
+        <div class="rs-name">📅 ${fmtDate(S.mSelEv.date)} ${S.mSelEv.title || ''}</div>
+        <div class="rs-time">🕐 ${S.mSelSlots.join(' / ')}</div>
+      </div>
+      <button class="btn btn-outline" onclick="memberShowList()">다른 전시대 신청하기</button>
+    </div>`;
+}
+
+async function cancelReg(evId, regId) {
+  if (!confirm('신청을 취소할까요?')) return;
+  await db.from('registrations').delete().eq('id', regId);
+  memberPickEv(evId);
+}
+
+// ── LEADER: 전시대 TAB ────────────────────────────────────
+async function loadJsdTab() {
+  const today = new Date().toISOString().split('T')[0];
+  const { data: evs } = await db.from('events').select('*').order('date', { ascending: true });
+
+  const upcoming = (evs || []).filter(e => e.date >= today);
+  const past     = (evs || []).filter(e => e.date <  today);
+
+  document.getElementById('jsd-upcoming').innerHTML = upcoming.length
+    ? upcoming.map(e => evCard(e, true)).join('')
+    : '<p class="text-muted">예정된 전시대가 없습니다.</p>';
+
+  document.getElementById('jsd-past').innerHTML = past.length
+    ? past.slice(0,5).map(e => evCard(e, false)).join('')
+    : '<p class="text-muted">지난 전시대가 없습니다.</p>';
+}
+
+function evCard(e, upcoming) {
+  const locs = (e.locations || []).join(', ');
+  const pubBadge = e.is_active
+    ? '<span class="badge badge-green">공개중</span>'
+    : '<span class="badge badge-orange">비공개</span>';
+  return `
+    <div class="card" style="padding:12px 14px">
+      <div class="flex-between mb-8">
+        <div>
+          <div style="font-weight:700;font-size:14px">${fmtDate(e.date)} ${e.title||''} ${pubBadge}</div>
+          <div class="text-muted" style="font-size:12px;margin-top:2px">${e.start_time}~${e.end_time} | ${e.interval_minutes}분 간격 | ${e.group_size}명 | 📍${locs}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${e.is_active
+          ? `<button class="btn btn-secondary btn-sm" onclick="toggleEvActive('${e.id}',false)">비공개</button>`
+          : `<button class="btn btn-outline btn-sm" onclick="toggleEvActive('${e.id}',true)">공개</button>`}
+        <button class="btn btn-secondary btn-sm" onclick="openEvModal('${e.id}')">수정</button>
+        <button class="btn btn-secondary btn-sm" onclick="copyEv('${e.id}')">복사</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteEv('${e.id}')">삭제</button>
+      </div>
+    </div>`;
+}
+
+async function copyEv(evId) {
+  const { data: ev } = await db.from('events').select('*').eq('id', evId).maybeSingle();
+  // 모달에 기존 값 채우되 날짜만 비워서 새로 입력하게
+  document.getElementById('ev-edit-id').value = '';
+  document.getElementById('ev-modal-title').textContent = '전시대 운영 복사';
+  document.getElementById('ev-modal-btn').textContent = '새로 만들기';
+  document.getElementById('ev-date').value = '';
+  document.getElementById('ev-title').value = ev.title || '';
+  document.getElementById('ev-locs').value = (ev.locations || []).join('\n');
+  document.getElementById('ev-start').value = ev.start_time;
+  document.getElementById('ev-end').value = ev.end_time;
+  document.getElementById('ev-interval').value = ev.interval_minutes;
+  document.getElementById('ev-grp').value = ev.group_size;
+  openModal('ev-modal');
+}
+
+async function toggleEvActive(id, val) {
+  await db.from('events').update({ is_active: val }).eq('id', id);
+  loadJsdTab();
+}
+async function deleteEv(id) {
+  if (!confirm('전시대 운영을 삭제할까요? 신청 및 배정 데이터도 함께 삭제됩니다.')) return;
+  await db.from('events').delete().eq('id', id);
+  loadJsdTab();
+}
+
+async function openEvModal(evId = null) {
+  document.getElementById('ev-edit-id').value = evId || '';
+  if (evId) {
+    const { data: ev } = await db.from('events').select('*').eq('id', evId).maybeSingle();
+    document.getElementById('ev-modal-title').textContent = '전시대 운영 수정';
+    document.getElementById('ev-modal-btn').textContent = '수정 저장';
+    document.getElementById('ev-date').value = ev.date;
+    document.getElementById('ev-title').value = ev.title || '';
+    document.getElementById('ev-locs').value = (ev.locations || []).join('\n');
+    document.getElementById('ev-start').value = ev.start_time;
+    document.getElementById('ev-end').value = ev.end_time;
+    document.getElementById('ev-interval').value = ev.interval_minutes;
+    document.getElementById('ev-grp').value = ev.group_size;
+  } else {
+    document.getElementById('ev-modal-title').textContent = '새 전시대 운영 만들기';
+    document.getElementById('ev-modal-btn').textContent = '전시대 운영 생성';
+    document.getElementById('ev-date').value = new Date().toISOString().split('T')[0];
+    document.getElementById('ev-title').value = '';
+    document.getElementById('ev-locs').value = '전시대 A';
+    document.getElementById('ev-start').value = '14:00';
+    document.getElementById('ev-end').value = '17:00';
+    document.getElementById('ev-interval').value = '15';
+    document.getElementById('ev-grp').value = '2';
+  }
+  openModal('ev-modal');
+}
+
+async function saveEv() {
+  const evId    = document.getElementById('ev-edit-id').value;
+  const date    = document.getElementById('ev-date').value;
+  const title   = document.getElementById('ev-title').value.trim();
+  const locText = document.getElementById('ev-locs').value.trim();
+  const start   = document.getElementById('ev-start').value;
+  const end     = document.getElementById('ev-end').value;
+  const interval = parseInt(document.getElementById('ev-interval').value) || 15;
+  const grp     = parseInt(document.getElementById('ev-grp').value) || 2;
+  if (!date || !locText || !start || !end) { alert('날짜, 장소, 시간을 모두 입력해주세요.'); return; }
+  const locs = locText.split('\n').map(s => s.trim()).filter(Boolean);
+
+  if (evId) {
+    const { error } = await db.from('events').update({
+      date, title, locations: locs, start_time: start, end_time: end,
+      interval_minutes: interval, group_size: grp
+    }).eq('id', evId);
+    if (error) { alert('오류: ' + error.message); return; }
+  } else {
+    const { error } = await db.from('events').insert({
+      date, title, locations: locs, start_time: start, end_time: end,
+      interval_minutes: interval, group_size: grp, is_active: true
+    });
+    if (error) { alert('오류: ' + error.message); return; }
+  }
+  closeModal('ev-modal');
+  loadJsdTab();
+}
+
+// ── LEADER: MEMBERS TAB ───────────────────────────────────
+async function loadMembersTab() {
+  const { data: members } = await db.from('members').select('*').order('name');
+  // 형제/자매 나눠서 표시
+  const brothers = (members||[]).filter(m => m.gender !== '자매');
+  const sisters  = (members||[]).filter(m => m.gender === '자매');
+
+  const renderGroup = (list) => list.map(m => `
+    <div class="m-item">
+      <span style="font-size:14px">${m.name} <span class="badge ${m.gender==='자매'?'badge-orange':'badge-green'}">${m.gender||'형제'}</span>${!m.active?' <span class="badge badge-orange">비활성</span>':''}</span>
+      <div class="m-item-btns">
+        <button class="btn btn-secondary btn-sm" onclick="toggleGender('${m.id}','${m.gender||'형제'}')">${m.gender==='자매'?'→형제':'→자매'}</button>
+        <button class="btn btn-secondary btn-sm" onclick="toggleMember('${m.id}',${m.active})">${m.active?'비활성':'활성화'}</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteMember('${m.id}')">삭제</button>
+      </div>
+    </div>`).join('');
+
+  document.getElementById('members-list').innerHTML = members?.length
+    ? `<div style="font-size:12px;font-weight:700;color:#1565c0;margin:8px 0 4px">🙎‍♂️ 형제 (${brothers.length}명)</div>
+       ${renderGroup(brothers)}
+       <div style="font-size:12px;font-weight:700;color:#c2185b;margin:12px 0 4px">🙎‍♀️ 자매 (${sisters.length}명)</div>
+       ${renderGroup(sisters)}`
+    : '<p class="text-muted">참가자가 없습니다.</p>';
+
+  const { data: leaders } = await db.from('leaders').select('*').order('name');
+  document.getElementById('leaders-list').innerHTML = leaders?.map(l => `
+    <div class="m-item">
+      <span style="font-size:14px">👑 ${l.name}</span>
+      <button class="btn btn-danger btn-sm" onclick="deleteLeader('${l.id}')" ${l.id===S.user.id?'disabled':''}>삭제</button>
+    </div>`).join('') || '';
+}
+
+async function addMember() {
+  const name   = document.getElementById('inp-new-member').value.trim();
+  const gender = document.getElementById('inp-new-gender').value;
+  if (!name) return;
+  const { error } = await db.from('members').insert({ name, gender, active: true });
+  if (error) { alert(error.message); return; }
+  document.getElementById('inp-new-member').value = '';
+  loadMembersTab();
+}
+async function toggleGender(id, current) {
+  const next = current === '자매' ? '형제' : '자매';
+  await db.from('members').update({ gender: next }).eq('id', id);
+  loadMembersTab();
+}
+async function toggleMember(id, active) {
+  await db.from('members').update({ active: !active }).eq('id', id);
+  loadMembersTab();
+}
+async function deleteMember(id) {
+  if (!confirm('삭제할까요?')) return;
+  await db.from('members').delete().eq('id', id);
+  loadMembersTab();
+}
+async function addLeader() {
+  const name = document.getElementById('inp-new-leader').value.trim();
+  const pw   = document.getElementById('inp-new-lpw').value.trim();
+  if (!name || !pw) { alert('이름과 비밀번호를 입력해주세요.'); return; }
+  const { error } = await db.from('leaders').insert({ name, password: pw });
+  if (error) { alert(error.message); return; }
+  document.getElementById('inp-new-leader').value = '';
+  document.getElementById('inp-new-lpw').value = '';
+  loadMembersTab();
+}
+async function deleteLeader(id) {
+  if (!confirm('인도자를 삭제할까요?')) return;
+  await db.from('leaders').delete().eq('id', id);
+  loadMembersTab();
+}
+
+// ── LEADER: ASSIGN TAB ────────────────────────────────────
+async function loadAssignEvSelect() {
+  document.getElementById('assign-ev-select').style.display = 'block';
+  document.getElementById('assign-body').style.display = 'none';
+  const today = new Date().toISOString().split('T')[0];
+  const { data: evs } = await db.from('events').select('*').gte('date', today).order('date');
+  const el = document.getElementById('assign-ev-list');
+  el.innerHTML = evs?.length
+    ? evs.map(e => `
+        <div class="card" style="padding:12px 14px;cursor:pointer" onclick="loadAssignForEv('${e.id}')">
+          <div style="font-weight:700;font-size:14px">${fmtDate(e.date)} ${e.title||''}</div>
+          <div class="text-muted" style="font-size:12px">${e.start_time}~${e.end_time} | 📍${(e.locations||[]).join(', ')}</div>
+        </div>`).join('')
+    : '<p class="text-muted">예정된 전시대가 없습니다.</p>';
+}
+
+async function loadAssignForEv(evId) {
+  document.getElementById('assign-ev-select').style.display = 'none';
+  document.getElementById('assign-body').style.display = 'block';
+
+  const { data: ev } = await db.from('events').select('*').eq('id', evId).maybeSingle();
+  S.selEv = ev;
+
+  const locs = (ev.locations||[]).join(', ');
+  document.getElementById('assign-ev-info').innerHTML = `
+    <div class="ev-banner" style="cursor:default;margin-bottom:12px">
+      <h3>📅 ${fmtDate(ev.date)} ${ev.title||''}</h3>
+      <p>🕐 ${ev.start_time}~${ev.end_time} | 📍${locs}</p>
+    </div>`;
+
+  const { data: regs }    = await db.from('registrations').select('*').eq('event_id', evId);
+  const { data: assigns } = await db.from('assignments').select('*').eq('event_id', evId);
+  const { data: members } = await db.from('members').select('id,name,gender');
+  S.regs = regs || [];
+  S.assigns = {};
+  S._membersMeta = members || [];
+  (assigns||[]).forEach(a => { S.assigns[`${a.location_index}_${a.slot_index}`] = a.member_names||[]; });
+
+  document.getElementById('reg-cnt').textContent = `(${S.regs.length}명)`;
+  S_selPair.clear();
+  loadPairsLocal();
+  renderPool();
+  renderPairs();
+  renderSlots();
+}
+
+function backToEvSelect() { loadAssignEvSelect(); }
+
+// ── PAIRING ───────────────────────────────────────────────
+let S_pairs    = [];   // [{ names: ['A','B'] }, ...]
+let S_selPair  = new Set(); // 짝 만들기용 선택
+let pairDragIdx = null;
+
+function pairsKey(evId) { return `pairs_${evId}`; }
+function savePairsLocal() { localStorage.setItem(pairsKey(S.selEv.id), JSON.stringify(S_pairs)); }
+function loadPairsLocal() {
+  const raw = localStorage.getItem(pairsKey(S.selEv.id));
+  S_pairs = raw ? JSON.parse(raw) : [];
+}
+
+function renderPool() {
+  const inPair = new Set(S_pairs.flatMap(p => p.names));
+  document.getElementById('reg-pool').innerHTML = S.regs.length
+    ? S.regs.map(r => {
+        const isPaired = inPair.has(r.member_name);
+        const isSel    = S_selPair.has(r.member_name);
+        return `<div class="chip ${isPaired?'done':''} ${isSel?'selected':''}"
+          onclick="tapForPair('${r.member_name}')"
+          title="${(r.time_slots||[]).join(', ')||'시간 미선택'}">
+          ${r.member_name}${isPaired?' ✓':''}
+        </div>`;
+      }).join('')
+    : '<p class="text-muted" style="font-size:13px">신청자가 없습니다.</p>';
+
+  const btn = document.getElementById('make-pair-btn');
+  const cnt = S_selPair.size;
+  if (cnt === 0) {
+    btn.textContent = '짝 만들기 (선택 없음)';
+    btn.disabled = true; btn.style.opacity = '0.4';
+  } else {
+    btn.textContent = `짝 만들기 (${[...S_selPair].join(', ')})`;
+    btn.disabled = false; btn.style.opacity = '1';
+  }
+}
+
+function tapForPair(name) {
+  const inPair = new Set(S_pairs.flatMap(p => p.names));
+  if (inPair.has(name)) return; // 이미 짝 있음
+  if (S_selPair.has(name)) S_selPair.delete(name);
+  else S_selPair.add(name);
+  renderPool();
+}
+
+function makePair() {
+  if (S_selPair.size === 0) return;
+  S_pairs.push({ names: [...S_selPair] });
+  S_selPair.clear();
+  savePairsLocal();
+  renderPool();
+  renderPairs();
+}
+
+function renderPairs() {
+  const el = document.getElementById('pairs-list');
+  if (S_pairs.length === 0) {
+    el.innerHTML = '<p class="text-muted" style="font-size:13px">짝이 없어요. 위에서 이름을 선택하고 짝 만들기를 눌러주세요.</p>';
+    return;
+  }
+  el.innerHTML = S_pairs.map((p, i) => `
+    <div class="pair-card" id="pair-card-${i}"
+      ondragover="pairCardDragOver(event,${i})"
+      ondragleave="pairCardDragLeave(${i})"
+      ondrop="memberDropOnPair(event,${i})"
+      style="display:flex;align-items:center;background:#f8f9fa;border-radius:8px;padding:10px 12px;margin-bottom:6px;border:1.5px solid #e0e0e0;gap:6px;">
+      <!-- 순서 변경 핸들 -->
+      <span draggable="true"
+        ondragstart="pairDragStart(event,${i})"
+        ondragover="event.stopPropagation();event.preventDefault()"
+        ondrop="pairDragDrop(event,${i})"
+        ondragend="pairDragEnd()"
+        style="color:#bbb;font-size:18px;cursor:grab;padding:0 4px;flex-shrink:0"
+        title="드래그해서 순서 변경">☰</span>
+      <span style="font-size:12px;color:#999;flex-shrink:0">${i+1}.</span>
+      <!-- 멤버 칩들 (드래그로 다른 짝으로 이동) -->
+      <div style="display:flex;flex-wrap:wrap;flex:1;gap:2px">
+        ${p.names.map(name => `
+          <span class="pair-member" draggable="true"
+            ondragstart="memberDragStart(event,${i},'${name}')"
+            ondragend="memberDragEnd(event)">
+            ${name}
+          </span>`).join('')}
+      </div>
+      <button onclick="removePair(${i})" style="background:none;border:none;color:#e53935;font-size:18px;cursor:pointer;padding:0 4px;flex-shrink:0">✕</button>
+    </div>`).join('')
+  + `<!-- 짝 없이 풀로 돌려보내기 영역 -->
+    <div id="pair-unassign-zone"
+      ondragover="pairCardDragOver(event,-1)"
+      ondragleave="pairCardDragLeave(-1)"
+      ondrop="memberDropOnPair(event,-1)"
+      style="border:2px dashed #ddd;border-radius:8px;padding:10px;text-align:center;color:#bbb;font-size:12px;margin-top:4px">
+      여기에 놓으면 짝 해제
+    </div>`;
+}
+
+// ── 짝 순서 드래그 ──
+function pairDragStart(e, i) {
+  pairDragIdx = i;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('type', 'pair-order');
+  e.stopPropagation();
+}
+function pairDragDrop(e, i) {
+  e.preventDefault(); e.stopPropagation();
+  if (pairDragIdx === null || pairDragIdx === i) { pairDragIdx = null; return; }
+  const item = S_pairs.splice(pairDragIdx, 1)[0];
+  S_pairs.splice(i, 0, item);
+  pairDragIdx = null;
+  savePairsLocal(); renderPairs();
+}
+function pairDragEnd() {
+  pairDragIdx = null;
+}
+
+// ── 멤버 → 다른 짝으로 드래그 ──
+let memberDrag = null; // { fromPairIdx, name }
+
+function memberDragStart(e, pairIdx, name) {
+  memberDrag = { fromPairIdx: pairIdx, name };
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('type', 'member');
+  e.currentTarget.classList.add('dragging');
+  e.stopPropagation(); // 순서 드래그와 분리
+}
+function memberDragEnd(e) {
+  e.currentTarget.classList.remove('dragging');
+  memberDrag = null;
+  document.querySelectorAll('.pair-card.drag-over, #pair-unassign-zone.drag-over')
+    .forEach(el => el.classList.remove('drag-over'));
+}
+function pairCardDragOver(e, i) {
+  if (!memberDrag) return;
+  e.preventDefault();
+  const el = i === -1
+    ? document.getElementById('pair-unassign-zone')
+    : document.getElementById(`pair-card-${i}`);
+  el?.classList.add('drag-over');
+}
+function pairCardDragLeave(i) {
+  const el = i === -1
+    ? document.getElementById('pair-unassign-zone')
+    : document.getElementById(`pair-card-${i}`);
+  el?.classList.remove('drag-over');
+}
+function memberDropOnPair(e, toPairIdx) {
+  e.preventDefault();
+  if (!memberDrag) return;
+  const { fromPairIdx, name } = memberDrag;
+  memberDrag = null;
+
+  if (toPairIdx === -1) {
+    // 짝 해제 → 해당 멤버를 짝에서 제거
+    S_pairs[fromPairIdx].names = S_pairs[fromPairIdx].names.filter(n => n !== name);
+    if (S_pairs[fromPairIdx].names.length === 0) S_pairs.splice(fromPairIdx, 1);
+  } else {
+    if (fromPairIdx === toPairIdx) return;
+    // 출발 짝에서 제거
+    S_pairs[fromPairIdx].names = S_pairs[fromPairIdx].names.filter(n => n !== name);
+    if (S_pairs[fromPairIdx].names.length === 0) {
+      S_pairs.splice(fromPairIdx, 1);
+      // 인덱스 보정
+      if (toPairIdx > fromPairIdx) toPairIdx--;
+    }
+    // 목적 짝에 추가
+    S_pairs[toPairIdx].names.push(name);
+  }
+
+  savePairsLocal();
+  renderPool();
+  renderPairs();
+}
+
+function removePair(i) {
+  S_pairs.splice(i, 1);
+  savePairsLocal();
+  renderPool();
+  renderPairs();
+}
+
+function resetPairs() {
+  if (!confirm('짝을 모두 초기화할까요?')) return;
+  S_pairs = []; S_selPair.clear();
+  savePairsLocal();
+  renderPool();
+  renderPairs();
+  renderSlots();
+}
+
+function autoMakePairs() {
+  if (!confirm('자동으로 짝을 만들면 기존 짝이 초기화됩니다. 계속할까요?')) return;
+
+  // 신청자별 gender 매핑 (members 테이블에서 미리 로드된 데이터 활용)
+  const genderMap = {};
+  (S._membersMeta || []).forEach(m => { genderMap[m.name] = m.gender || '형제'; });
+
+  const inPair = new Set(S_pairs.flatMap(p => p.names));
+  const available = S.regs.map(r => r.member_name).filter(n => !inPair.has(n));
+
+  const brothers = available.filter(n => genderMap[n] !== '자매');
+  const sisters  = available.filter(n => genderMap[n] === '자매');
+
+  S_pairs = [];
+  const makePairsFrom = (list) => {
+    for (let i = 0; i < list.length; i += 2) {
+      S_pairs.push({ names: list.slice(i, i + 2) });
+    }
+    // 홀수면 마지막 짝에 합치기
+    if (S_pairs.length >= 2 && S_pairs[S_pairs.length - 1].names.length === 1) {
+      const lone = S_pairs.pop().names[0];
+      S_pairs[S_pairs.length - 1].names.push(lone);
+    }
+  };
+  makePairsFrom(brothers);
+  makePairsFrom(sisters);
+
+  S_selPair.clear();
+  savePairsLocal();
+  renderPool();
+  renderPairs();
+}
+
+async function assignPairsToSlots() {
+  if (S_pairs.length === 0) { alert('먼저 짝을 만들어 주세요.'); return; }
+  if (!confirm('짝 순서대로 배정합니다. 기존 배정이 초기화됩니다.')) return;
+
+  const ev    = S.selEv;
+  const slots = getSlots(ev.start_time, ev.end_time, ev.interval_minutes);
+  const locs  = ev.locations || [];
+  const n     = S_pairs.length;
+
+  await db.from('assignments').delete().eq('event_id', ev.id);
+  S.assigns = {};
+
+  const rows = [];
+  let pi = 0;
+  for (let si = 0; si < slots.length; si++) {
+    for (let li = 0; li < locs.length; li++) {
+      const mems = S_pairs[pi % n].names;
+      rows.push({ event_id: ev.id, location_index: li, slot_index: si, member_names: mems });
+      S.assigns[`${li}_${si}`] = mems;
+      pi++;
+    }
+  }
+
+  if (rows.length) await db.from('assignments').insert(rows);
+  renderSlots();
+}
+
+async function addLateJoiners() {
+  if (!S.selEv) return;
+  const ev    = S.selEv;
+  const slots = getSlots(ev.start_time, ev.end_time, ev.interval_minutes);
+  const locs  = ev.locations || [];
+
+  // 기존 짝에 없는 신청자 찾기
+  const inPair = new Set(S_pairs.flatMap(p => p.names));
+  const late   = S.regs.map(r => r.member_name).filter(m => !inPair.has(m));
+  if (late.length === 0) { alert('모든 신청자가 이미 짝에 포함되어 있어요.'); return; }
+
+  // 늦은 신청자를 그룹 크기로 묶어 짝 목록 끝에 추가
+  const grp = S.selEv.group_size;
+  for (let i = 0; i < late.length; i += grp) {
+    S_pairs.push({ names: late.slice(i, i + grp) });
+  }
+  savePairsLocal();
+  renderPool();
+  renderPairs();
+
+  // 마지막으로 배정된 슬롯 이후부터 재배정
+  let lastSi = -1;
+  for (let si = slots.length - 1; si >= 0; si--) {
+    if (locs.some((_, li) => (S.assigns[`${li}_${si}`]||[]).length > 0)) { lastSi = si; break; }
+  }
+  const startSi = lastSi + 1;
+  if (startSi >= slots.length) {
+    alert(`${late.join(', ')}님을 짝 목록에 추가했어요. 남은 슬롯이 없어 배정은 생략됐어요.`);
+    return;
+  }
+
+  const n = S_pairs.length;
+  let pi  = lastSi >= 0 ? (lastSi + 1) * locs.length : 0;
+  const rows = [];
+  for (let si = startSi; si < slots.length; si++) {
+    for (let li = 0; li < locs.length; li++) {
+      const mems = S_pairs[pi % n].names;
+      rows.push({ event_id: ev.id, location_index: li, slot_index: si, member_names: mems });
+      S.assigns[`${li}_${si}`] = mems;
+      pi++;
+    }
+  }
+  if (rows.length) await db.from('assignments').upsert(rows, { onConflict: 'event_id,location_index,slot_index' });
+  renderSlots();
+  alert(`${late.join(', ')}님을 짝 목록에 추가하고 ${startSi+1}번 슬롯부터 배정했어요.`);
+}
+
+function renderSlots() {
+  const ev    = S.selEv;
+  const slots = getSlots(ev.start_time, ev.end_time, ev.interval_minutes);
+  const locs  = ev.locations || [];
+
+  document.getElementById('slots-wrap').innerHTML = locs.map((loc, li) => `
+    <div class="card">
+      <div class="loc-title">📍 ${loc}</div>
+      ${slots.map((sl, si) => {
+        const key  = `${li}_${si}`;
+        const mems = S.assigns[key] || [];
+        return `
+          <div class="slot-row">
+            <div class="slot-time">${sl.start}<br><span style="color:#ccc">│</span><br>${sl.end}</div>
+            <div class="slot-cell ${mems.length?'has-members':''}">
+              ${mems.map(m => `<div class="m-name"><span>${m}</span></div>`).join('')}
+              ${!mems.length ? '<span class="slot-hint">미배정</span>' : ''}
+            </div>
+          </div>`;
+      }).join('')}
+    </div>`).join('');
+}
+
+// ── LEADER: OUTPUT TAB ────────────────────────────────────
+async function loadOutEvSelect() {
+  document.getElementById('out-ev-select').style.display = 'block';
+  document.getElementById('out-body').style.display = 'none';
+  const today = new Date().toISOString().split('T')[0];
+  const { data: evs } = await db.from('events').select('*').order('date', { ascending: false });
+  document.getElementById('out-ev-list').innerHTML = evs?.length
+    ? evs.map(e => `
+        <div class="card" style="padding:12px 14px;cursor:pointer" onclick="loadOutput('${e.id}')">
+          <div style="font-weight:700;font-size:14px">${fmtDate(e.date)} ${e.title||''}</div>
+          <div class="text-muted" style="font-size:12px">${e.start_time}~${e.end_time} | 📍${(e.locations||[]).join(', ')}</div>
+        </div>`).join('')
+    : '<p class="text-muted">전시대가 없습니다.</p>';
+}
+
+async function loadOutput(evId) {
+  document.getElementById('out-ev-select').style.display = 'none';
+  document.getElementById('out-body').style.display = 'block';
+
+  const { data: ev } = await db.from('events').select('*').eq('id', evId).maybeSingle();
+  S.selEv = ev;
+
+  const slots = getSlots(ev.start_time, ev.end_time, ev.interval_minutes);
+  const locs  = ev.locations || [];
+  const { data: assigns } = await db.from('assignments').select('*').eq('event_id', evId);
+  const am = {};
+  (assigns||[]).forEach(a => { am[`${a.location_index}_${a.slot_index}`] = a.member_names||[]; });
+
+  const dow = getDow(ev.date);
+  const th  = locs.map(l => `<th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">${l}</th>`).join('');
+  const rows = slots.map((sl, si) => {
+    const tds = locs.map((_,li) => {
+      const ms = am[`${li}_${si}`]||[];
+      return `<td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;">${ms.join('<br>')||'—'}</td>`;
+    }).join('');
+    return `<tr>
+      <td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;font-weight:600;background:#fffde7;white-space:nowrap;font-size:12px;">${sl.start}~${sl.end}</td>
+      ${tds}
+    </tr>`;
+  }).join('');
+
+  document.getElementById('out-table-wrap').innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr><th colspan="${locs.length+1}" style="background:#f5c518;color:#111;padding:12px;text-align:center;border:1px solid #e0a800;font-size:15px;font-weight:700;">
+          📅 ${fmtDate(ev.date)} (${dow}) ${ev.title?'· '+ev.title:'전시대 봉사'}
+        </th></tr>
+        <tr>
+          <th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">시간</th>${th}
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function backToOutSelect() { loadOutEvSelect(); }
+
+async function saveImage() {
+  const el = document.getElementById('out-table-wrap');
+  const canvas = await html2canvas(el, { backgroundColor: '#ffffff', scale: 2 });
+  const a = document.createElement('a');
+  a.download = `전시대배정_${S.selEv?.date||'output'}.png`;
+  a.href = canvas.toDataURL('image/png');
+  a.click();
+}
+
+// ── LEADER SIGNUP ─────────────────────────────────────────
+const LS = { selEv: null, selSlots: [], existReg: null };
+
+async function leaderSignupList() {
+  const el = document.getElementById('l-signup-content');
+  el.innerHTML = '<div class="loading">⏳ 불러오는 중...</div>';
+
+  const today = new Date().toISOString().split('T')[0];
+  const { data: evs } = await db.from('events')
+    .select('*').eq('is_active', true).gte('date', today).order('date');
+
+  if (!evs || evs.length === 0) {
+    el.innerHTML = `<div class="reg-status"><div class="reg-icon">📭</div><h3>예정된 전시대가 없습니다</h3></div>`;
+    return;
+  }
+
+  const { data: myRegs } = await db.from('registrations').select('*').eq('member_name', S.user.name).is('member_id', null);
+  const regMap = {};
+  (myRegs || []).forEach(r => { regMap[r.event_id] = r; });
+
+  el.innerHTML = `
+    <div class="sec-title">전시대를 선택하세요</div>
+    ${evs.map(ev => {
+      const reg = regMap[ev.id];
+      const locs = (ev.locations || []).join(', ');
+      return `
+        <div class="ev-banner ${reg ? 'selected' : ''}" onclick="leaderPickEv('${ev.id}')">
+          <h3>📅 ${fmtDate(ev.date)} ${ev.title ? '· ' + ev.title : ''}</h3>
+          <p>🕐 ${ev.start_time} ~ ${ev.end_time} &nbsp;|&nbsp; 📍 ${locs}</p>
+          ${reg
+            ? `<p style="margin-top:6px;font-size:12px;background:rgba(255,255,255,0.2);border-radius:6px;padding:4px 8px;display:inline-block">✅ 신청완료 · ${(reg.time_slots||[]).join(', ')}</p>`
+            : '<p style="margin-top:6px;font-size:12px;opacity:0.7">탭해서 신청하기 →</p>'}
+        </div>`;
+    }).join('')}`;
+}
+
+async function leaderPickEv(evId) {
+  const el = document.getElementById('l-signup-content');
+  el.innerHTML = '<div class="loading">⏳ 불러오는 중...</div>';
+
+  const { data: ev } = await db.from('events').select('*').eq('id', evId).maybeSingle();
+  LS.selEv = ev;
+
+  const { data: reg } = await db.from('registrations').select('*')
+    .eq('event_id', evId).eq('member_name', S.user.name).is('member_id', null).maybeSingle();
+  LS.existReg = reg;
+  LS.selSlots = reg ? [...(reg.time_slots || [])] : [];
+
+  const { data: allRegs } = await db.from('registrations').select('time_slots').eq('event_id', evId);
+  const slotCount = {};
+  (allRegs || []).forEach(r => { (r.time_slots||[]).forEach(s => { slotCount[s] = (slotCount[s]||0)+1; }); });
+
+  const hourSlots = getHourSlots(ev.start_time, ev.end_time);
+  const lbl = (ev.locations||[]).join(', ');
+
+  el.innerHTML = `
+    <button class="back-btn" onclick="leaderSignupList()">← 전시대 목록</button>
+    <div class="ev-banner" style="cursor:default;margin-bottom:14px">
+      <h3>📅 ${fmtDate(ev.date)} ${ev.title ? '· ' + ev.title : ''}</h3>
+      <p>🕐 ${ev.start_time} ~ ${ev.end_time} &nbsp;|&nbsp; 📍 ${lbl}</p>
+    </div>
+    <div class="sec-title">참여 가능한 시간을 선택하세요 (복수 선택 가능)</div>
+    <div id="l-slot-btns">
+      ${hourSlots.map(sl => {
+        const label = `${sl.start} ~ ${sl.end}`;
+        const cnt   = slotCount[label] || 0;
+        const isSel = LS.selSlots.includes(label);
+        return `<button class="time-slot-btn ${isSel ? 'selected' : ''}" onclick="leaderToggleSlot('${label}', this)">
+          ${label} <span class="slot-count">${cnt}명 신청</span>
+        </button>`;
+      }).join('')}
+    </div>
+    <div id="l-slot-err" class="err"></div>
+    <button class="btn btn-primary mt-12" onclick="leaderSubmitReg('${evId}')">
+      ${reg ? '신청 수정하기' : '신청하기'}
+    </button>
+    ${reg ? `<button class="btn btn-danger mt-8" onclick="leaderCancelReg('${evId}','${reg.id}')">신청 취소</button>` : ''}`;
+}
+
+function leaderToggleSlot(label, btn) {
+  const idx = LS.selSlots.indexOf(label);
+  if (idx >= 0) { LS.selSlots.splice(idx, 1); btn.classList.remove('selected'); }
+  else          { LS.selSlots.push(label);     btn.classList.add('selected'); }
+}
+
+async function leaderSubmitReg(evId) {
+  if (LS.selSlots.length === 0) {
+    document.getElementById('l-slot-err').textContent = '시간을 하나 이상 선택해주세요.';
+    return;
+  }
+  document.getElementById('l-slot-err').textContent = '';
+
+  if (LS.existReg) {
+    await db.from('registrations').update({ time_slots: LS.selSlots }).eq('id', LS.existReg.id);
+  } else {
+    await db.from('registrations').insert({
+      event_id: evId, member_id: null, member_name: S.user.name, time_slots: LS.selSlots
+    });
+  }
+
+  const el = document.getElementById('l-signup-content');
+  el.innerHTML = `
+    <div class="reg-status">
+      <div class="reg-icon">✅</div>
+      <h3>신청 완료!</h3>
+      <p>${S.user.name}님 신청이 완료되었습니다.</p>
+      <div class="reg-summary">
+        <div class="rs-name">📅 ${fmtDate(LS.selEv.date)} ${LS.selEv.title||''}</div>
+        <div class="rs-time">🕐 ${LS.selSlots.join(' / ')}</div>
+      </div>
+      <button class="btn btn-outline" onclick="leaderSignupList()">다른 전시대 신청하기</button>
+    </div>`;
+}
+
+async function leaderCancelReg(evId, regId) {
+  if (!confirm('신청을 취소할까요?')) return;
+  await db.from('registrations').delete().eq('id', regId);
+  leaderPickEv(evId);
+}
+
+// ── UTILS ─────────────────────────────────────────────────
+function toM(t) { const [h,m] = t.split(':').map(Number); return h*60+m; }
+function toT(m) { return `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`; }
+
+function getSlots(start, end, interval) {
+  const slots = [], endM = toM(end);
+  let cur = toM(start);
+  while (cur < endM) { const nxt = Math.min(cur+interval, endM); slots.push({start:toT(cur),end:toT(nxt)}); cur=nxt; }
+  return slots;
+}
+
+function getHourSlots(start, end) {
+  // 신청용 슬롯: 시작은 정각으로 내림, 종료는 정각으로 올림
+  const startM = Math.floor(toM(start) / 60) * 60;
+  const endM   = Math.ceil(toM(end)   / 60) * 60;
+  const slots  = [];
+  let cur = startM;
+  while (cur < endM) { slots.push({ start: toT(cur), end: toT(cur + 60) }); cur += 60; }
+  return slots;
+}
+
+function fmtDate(d) {
+  if (!d) return '';
+  const [y,m,day] = d.split('-');
+  return `${y}년 ${parseInt(m)}월 ${parseInt(d)}일`.replace(/년 \d+월 \d+일/, `년 ${parseInt(m)}월 ${parseInt(day)}일`);
+}
+
+function getDow(d) {
+  return ['일','월','화','수','목','금','토'][new Date(d).getDay()]+'요일';
+}
+</script>
+</body>
+</html>
