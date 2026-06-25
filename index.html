@@ -306,6 +306,11 @@ textarea { resize: vertical; min-height: 70px; }
         <p class="text-muted mb-8" style="font-size:11px">이름 탭 → 선택 → 짝 만들기 버튼</p>
         <div id="reg-pool" class="chip-pool"></div>
         <button class="btn btn-outline mt-8" id="make-pair-btn" onclick="makePair()" style="opacity:0.4" disabled>짝 만들기 (선택 없음)</button>
+        <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
+          <input type="text" id="direct-add-name" placeholder="현장 참석자 이름" onkeydown="if(event.key==='Enter')addDirectAttendee()" style="flex:1;font-size:14px;padding:9px 12px;border:1.5px solid #e0e0e0;border-radius:10px;outline:none;font-family:inherit">
+          <button class="btn btn-outline btn-sm" onclick="addDirectAttendee()">직접 추가</button>
+        </div>
+        <p style="color:#aaa;font-size:11px;margin-top:4px">신청하지 않았지만 참석하겠다고 한 분을 추가하세요</p>
       </div>
 
       <!-- STEP 2: 짝 목록 -->
@@ -319,6 +324,7 @@ textarea { resize: vertical; min-height: 70px; }
         </div>
         <div id="pairs-list"></div>
         <button class="btn btn-primary mt-8" onclick="assignPairsToSlots()">📋 배정 시작</button>
+        <button class="btn btn-secondary mt-8" onclick="applyRecommendedInterval()">⚙️ 인원 맞춤 간격 조정</button>
       </div>
 
       <!-- STEP 3: 배정 결과 -->
@@ -387,6 +393,16 @@ textarea { resize: vertical; min-height: 70px; }
           <option value="2">2명</option>
           <option value="3">3명</option>
         </select>
+      </div>
+    </div>
+    <div id="ev-repeat-group" style="display:none;margin-bottom:14px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;font-weight:600">
+        <input type="checkbox" id="ev-repeat" onchange="toggleRepeat(this)" style="width:auto;accent-color:#2c5f2e">
+        매주 반복 만들기
+      </label>
+      <div id="ev-repeat-count-wrap" style="display:none;margin-top:10px">
+        <label style="display:block;font-size:12px;color:#666;font-weight:600;margin-bottom:5px">반복 횟수 (주)</label>
+        <input type="number" id="ev-repeat-count" value="4" min="2" max="52">
       </div>
     </div>
     <input type="hidden" id="ev-edit-id">
@@ -667,6 +683,7 @@ async function copyEv(evId) {
   document.getElementById('ev-end').value = ev.end_time;
   document.getElementById('ev-interval').value = ev.interval_minutes;
   document.getElementById('ev-grp').value = ev.group_size;
+  document.getElementById('ev-repeat-group').style.display = 'none';
   openModal('ev-modal');
 }
 
@@ -693,6 +710,7 @@ async function openEvModal(evId = null) {
     document.getElementById('ev-end').value = ev.end_time;
     document.getElementById('ev-interval').value = ev.interval_minutes;
     document.getElementById('ev-grp').value = ev.group_size;
+    document.getElementById('ev-repeat-group').style.display = 'none';
   } else {
     document.getElementById('ev-modal-title').textContent = '새 전시대 운영 만들기';
     document.getElementById('ev-modal-btn').textContent = '전시대 운영 생성';
@@ -703,6 +721,9 @@ async function openEvModal(evId = null) {
     document.getElementById('ev-end').value = '17:00';
     document.getElementById('ev-interval').value = '15';
     document.getElementById('ev-grp').value = '2';
+    document.getElementById('ev-repeat-group').style.display = 'block';
+    document.getElementById('ev-repeat').checked = false;
+    document.getElementById('ev-repeat-count-wrap').style.display = 'none';
   }
   openModal('ev-modal');
 }
@@ -726,11 +747,25 @@ async function saveEv() {
     }).eq('id', evId);
     if (error) { alert('오류: ' + error.message); return; }
   } else {
-    const { error } = await db.from('events').insert({
-      date, title, locations: locs, start_time: start, end_time: end,
-      interval_minutes: interval, group_size: grp, is_active: true
-    });
-    if (error) { alert('오류: ' + error.message); return; }
+    const repeat = document.getElementById('ev-repeat')?.checked;
+    const repeatCount = parseInt(document.getElementById('ev-repeat-count')?.value) || 1;
+    if (repeat && repeatCount > 1) {
+      const baseDate = new Date(date + 'T12:00:00');
+      const rows = [];
+      for (let i = 0; i < repeatCount; i++) {
+        const d = new Date(baseDate);
+        d.setDate(baseDate.getDate() + i * 7);
+        rows.push({ date: d.toISOString().split('T')[0], title, locations: locs, start_time: start, end_time: end, interval_minutes: interval, group_size: grp, is_active: true });
+      }
+      const { error } = await db.from('events').insert(rows);
+      if (error) { alert('오류: ' + error.message); return; }
+    } else {
+      const { error } = await db.from('events').insert({
+        date, title, locations: locs, start_time: start, end_time: end,
+        interval_minutes: interval, group_size: grp, is_active: true
+      });
+      if (error) { alert('오류: ' + error.message); return; }
+    }
   }
   closeModal('ev-modal');
   loadJsdTab();
@@ -1389,6 +1424,58 @@ function fmtDate(d) {
 
 function getDow(d) {
   return ['일','월','화','수','목','금','토'][new Date(d).getDay()]+'요일';
+}
+
+function toggleRepeat(cb) {
+  document.getElementById('ev-repeat-count-wrap').style.display = cb.checked ? 'block' : 'none';
+}
+
+async function addDirectAttendee() {
+  const nameInput = document.getElementById('direct-add-name');
+  const name = nameInput.value.trim();
+  if (!name) return;
+  if (!S.selEv) return;
+  if (S.regs.some(r => r.member_name === name)) {
+    alert(`${name}님은 이미 신청자 목록에 있습니다.`); return;
+  }
+  const ev = S.selEv;
+  const allSlots = getHourSlots(ev.start_time, ev.end_time).map(s => `${s.start} ~ ${s.end}`);
+  const { data, error } = await db.from('registrations').insert({
+    event_id: ev.id, member_id: null, member_name: name, time_slots: allSlots
+  }).select().maybeSingle();
+  if (error) { alert('추가 실패: ' + error.message); return; }
+  S.regs.push({ id: data.id, event_id: ev.id, member_id: null, member_name: name, time_slots: allSlots });
+  document.getElementById('reg-cnt').textContent = `(${S.regs.length}명)`;
+  nameInput.value = '';
+  renderPool();
+}
+
+async function applyRecommendedInterval() {
+  if (!S.selEv) return;
+  const ev = S.selEv;
+  const locs = (ev.locations || []).length || 1;
+  const totalMinutes = toM(ev.end_time) - toM(ev.start_time);
+  let numPairs;
+  if (S_pairs.length > 0) {
+    numPairs = S_pairs.length;
+  } else if (S.regs.length > 0) {
+    numPairs = Math.ceil(S.regs.length / (ev.group_size || 2));
+  } else {
+    alert('신청자가 없어 간격을 계산할 수 없습니다.'); return;
+  }
+  const totalSlots = Math.ceil(numPairs / locs);
+  const interval = Math.max(5, Math.floor(totalMinutes / totalSlots));
+  const source = S_pairs.length > 0 ? `짝 ${numPairs}개` : `신청자 ${S.regs.length}명 기준 약 ${numPairs}짝`;
+  if (!confirm(`${source}에 맞게 배정 간격을 ${interval}분으로 조정할까요? (총 ${totalSlots}개 시간대)`)) return;
+  const { error } = await db.from('events').update({ interval_minutes: interval }).eq('id', ev.id);
+  if (error) { alert('오류: ' + error.message); return; }
+  S.selEv.interval_minutes = interval;
+  renderSlots();
+  document.getElementById('assign-ev-info').innerHTML = `
+    <div class="ev-banner" style="cursor:default;margin-bottom:12px">
+      <h3>📅 ${fmtDate(ev.date)} ${ev.title||''}</h3>
+      <p>🕐 ${ev.start_time}~${ev.end_time} | 📍${(ev.locations||[]).join(', ')} | ⏱️ ${interval}분 간격</p>
+    </div>`;
 }
 </script>
 </body>
