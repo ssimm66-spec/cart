@@ -405,19 +405,8 @@ textarea { resize: vertical; min-height: 70px; }
         <input type="time" id="ev-end">
       </div>
     </div>
-    <div class="row-2">
-      <div class="form-group">
-        <label>배정 간격 (분)</label>
-        <input type="number" id="ev-interval" value="15" min="5" max="60">
-      </div>
-      <div class="form-group">
-        <label>그룹 크기</label>
-        <select id="ev-grp">
-          <option value="2">2명</option>
-          <option value="3">3명</option>
-        </select>
-      </div>
-    </div>
+    <input type="hidden" id="ev-interval" value="60">
+    <input type="hidden" id="ev-grp" value="2">
     <div id="ev-repeat-group" style="display:none;margin-bottom:14px">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;font-weight:600">
         <input type="checkbox" id="ev-repeat" onchange="toggleRepeat(this)" style="width:auto;accent-color:#2c5f2e">
@@ -679,7 +668,7 @@ function evCard(e, upcoming) {
       <div class="flex-between mb-8">
         <div>
           <div style="font-weight:700;font-size:14px">${fmtDate(e.date)} ${e.title||''} ${pubBadge}</div>
-          <div class="text-muted" style="font-size:12px;margin-top:2px">${e.start_time}~${e.end_time} | ${e.interval_minutes}분 간격 | ${e.group_size}명 | 📍${locs}</div>
+          <div class="text-muted" style="font-size:12px;margin-top:2px">${e.start_time}~${e.end_time} | 📍${locs}</div>
         </div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -765,8 +754,7 @@ async function saveEv() {
 
   if (evId) {
     const { error } = await db.from('events').update({
-      date, title, locations: locs, start_time: start, end_time: end,
-      interval_minutes: interval, group_size: grp
+      date, title, locations: locs, start_time: start, end_time: end
     }).eq('id', evId);
     if (error) { alert('오류: ' + error.message); return; }
   } else {
@@ -1496,16 +1484,24 @@ function showIntervalAdjustPanel() {
   const panel = document.getElementById('interval-adjust-panel');
   if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
   const numPeople = S.regs.length;
-  if (numPeople === 0) { alert('신청자가 없어 계산할 수 없습니다.'); return; }
   const locs = (S.selEv.locations || []).length || 1;
-  const rec = calcIntervalRecommendation(numPeople, locs);
-  const cap = (60 / rec.interval) * locs * rec.grp;
-  document.getElementById('interval-adjust-info').innerHTML =
-    `신청인원 <b>${numPeople}명</b> · 장소 <b>${locs}곳</b> 기준 추천<br>` +
-    `<span style="color:#2c5f2e;font-weight:700">${rec.grp}인 / ${rec.interval}분 간격</span>` +
-    ` → 1시간에 최대 ${cap}명`;
-  document.getElementById('adj-grp').value = rec.grp;
-  document.getElementById('adj-interval').value = rec.interval;
+  if (numPeople > 0) {
+    const rec = calcIntervalRecommendation(numPeople, locs);
+    const cap = (60 / rec.interval) * locs * rec.grp;
+    document.getElementById('interval-adjust-info').innerHTML =
+      `신청인원 <b>${numPeople}명</b> · 장소 <b>${locs}곳</b> 기준 추천<br>` +
+      `<span style="color:#2c5f2e;font-weight:700">${rec.grp}인 / ${rec.interval}분 간격</span>` +
+      ` → 1시간에 최대 ${cap}명`;
+    document.getElementById('adj-grp').value = rec.grp;
+    document.getElementById('adj-interval').value = rec.interval;
+  } else {
+    const curInterval = [10,15,20].includes(S.selEv.interval_minutes) ? S.selEv.interval_minutes : 15;
+    document.getElementById('interval-adjust-info').innerHTML =
+      `신청자가 없습니다. 직접 설정해 주세요.<br>` +
+      `현재: <b>${S.selEv.group_size || 2}인 / ${S.selEv.interval_minutes || 60}분 간격</b>`;
+    document.getElementById('adj-grp').value = S.selEv.group_size || 2;
+    document.getElementById('adj-interval').value = curInterval;
+  }
   updateAdjCapacity();
   panel.style.display = 'block';
 }
