@@ -1123,12 +1123,30 @@ function autoMakePairs() {
   renderPairs();
 }
 
+function pairsToInterval(n) {
+  if (n <= 3) return 20;
+  if (n <= 5) return 15;
+  return 10;
+}
+
 async function assignPairsToSlots() {
   if (S_pairs.length === 0) { alert('먼저 짝을 만들어 주세요.'); return; }
-  if (!confirm('짝 순서대로 배정합니다. 기존 배정이 초기화됩니다.')) return;
 
-  const ev    = S.selEv;
-  const slots = getSlots(ev.start_time, ev.end_time, ev.interval_minutes);
+  const ev = S.selEv;
+  const autoInterval = pairsToInterval(S_pairs.length);
+  if (!confirm(`짝 ${S_pairs.length}쌍 → ${autoInterval}분 간격으로 배정합니다. 기존 배정이 초기화됩니다.`)) return;
+
+  if (ev.interval_minutes !== autoInterval) {
+    await db.from('events').update({ interval_minutes: autoInterval }).eq('id', ev.id);
+    S.selEv.interval_minutes = autoInterval;
+    document.getElementById('assign-ev-info').innerHTML = `
+      <div class="ev-banner" style="cursor:default;margin-bottom:12px">
+        <h3>📅 ${fmtDate(ev.date)} ${ev.title||''}</h3>
+        <p>🕐 ${ev.start_time}~${ev.end_time} | 📍${(ev.locations||[]).join(', ')} | ⏱️ ${autoInterval}분 간격</p>
+      </div>`;
+  }
+
+  const slots = getSlots(ev.start_time, ev.end_time, S.selEv.interval_minutes);
   const locs  = ev.locations || [];
   const n     = S_pairs.length;
 
