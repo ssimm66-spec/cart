@@ -1123,18 +1123,28 @@ function autoMakePairs() {
   renderPairs();
 }
 
-function pairsToInterval(n) {
-  if (n <= 3) return 20;
-  if (n <= 5) return 15;
-  return 10;
+function calcAutoInterval(totalPairs, numLocations) {
+  const ppl = Math.ceil(totalPairs / numLocations);
+  if (ppl < 3)  return { interval: null, err: `장소당 짝이 ${ppl}쌍입니다. 최소 3쌍 이상이어야 배정할 수 있어요.` };
+  if (ppl <= 3) return { interval: 20 };
+  if (ppl <= 5) return { interval: 15 };
+  if (ppl <= 6) return { interval: 10 };
+  return { interval: 10, warn: `장소당 짝이 ${ppl}쌍으로 많아요. 전시대를 한 곳 더 추가하는 걸 권장합니다.` };
 }
 
 async function assignPairsToSlots() {
   if (S_pairs.length === 0) { alert('먼저 짝을 만들어 주세요.'); return; }
 
   const ev = S.selEv;
-  const autoInterval = pairsToInterval(S_pairs.length);
-  if (!confirm(`짝 ${S_pairs.length}쌍 → ${autoInterval}분 간격으로 배정합니다. 기존 배정이 초기화됩니다.`)) return;
+  const numLocs = (ev.locations || []).length || 1;
+  const { interval: autoInterval, err, warn } = calcAutoInterval(S_pairs.length, numLocs);
+
+  if (err) { alert(err); return; }
+
+  let confirmMsg = `짝 ${S_pairs.length}쌍 (장소 ${numLocs}곳) → ${autoInterval}분 간격으로 배정합니다.`;
+  if (warn) confirmMsg += `\n\n⚠️ ${warn}`;
+  confirmMsg += '\n\n기존 배정이 초기화됩니다.';
+  if (!confirm(confirmMsg)) return;
 
   if (ev.interval_minutes !== autoInterval) {
     await db.from('events').update({ interval_minutes: autoInterval }).eq('id', ev.id);
