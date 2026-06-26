@@ -422,6 +422,32 @@ textarea { resize: vertical; min-height: 70px; }
   </div>
 </div>
 
+<!-- 6쌍 배정 방법 선택 모달 -->
+<div id="loc-choice-modal" class="modal-bg">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>배정 방법 선택</h3>
+      <button class="modal-close" onclick="closeModal('loc-choice-modal')">✕</button>
+    </div>
+    <p style="font-size:14px;color:#555;margin-bottom:16px;line-height:1.6">짝이 <b>6쌍</b>입니다. 한 곳에서 진행할지, 두 곳으로 나눌지 선택해주세요.</p>
+    <div class="card" style="cursor:pointer;margin-bottom:10px;border:1.5px solid #e0e0e0;active:background:#f0f8f0" onclick="doAssign1Loc()">
+      <div style="font-weight:700;font-size:15px;margin-bottom:4px">📍 1곳에서 진행</div>
+      <div style="font-size:13px;color:#666">6쌍 전체 · 10분 간격</div>
+    </div>
+    <div class="card" style="cursor:pointer;border:1.5px solid #e0e0e0" onclick="showAdd2ndLoc()">
+      <div style="font-weight:700;font-size:15px;margin-bottom:4px">📍📍 2곳으로 나눠서 진행</div>
+      <div style="font-size:13px;color:#666">장소당 3쌍 · 20분 간격</div>
+    </div>
+    <div id="add-2nd-loc-wrap" style="display:none;margin-top:14px">
+      <div class="form-group">
+        <label>추가할 전시대 장소 이름</label>
+        <input type="text" id="inp-2nd-loc" placeholder="예: B 장소" onkeydown="if(event.key==='Enter')doAssign2Loc()">
+      </div>
+      <button class="btn btn-primary" onclick="doAssign2Loc()">이 장소로 2곳 배정하기</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const SUPA_URL = 'https://pbwkvxhfhpjtomqypfcz.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBid2t2eGhmaHBqdG9tcXlwZmN6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzNzQzOTIsImV4cCI6MjA5Njk1MDM5Mn0.FfGNJHi2FvAiBrwEBmwCA9ZfHAinaUX2R_ldvA0AoUc';
@@ -1132,37 +1158,17 @@ function calcAutoInterval(totalPairs, numLocations) {
   return { interval: 10, warn: `장소당 짝이 ${ppl}쌍으로 많아요. 전시대를 한 곳 더 추가하는 걸 권장합니다.` };
 }
 
-async function assignPairsToSlots() {
-  if (S_pairs.length === 0) { alert('먼저 짝을 만들어 주세요.'); return; }
-
+async function doAssignWithInterval(autoInterval) {
   const ev = S.selEv;
-  const numLocs = (ev.locations || []).length || 1;
-  const { interval: autoInterval, err, warn } = calcAutoInterval(S_pairs.length, numLocs);
-
-  if (err) { alert(err); return; }
-
-  let confirmMsg = `짝 ${S_pairs.length}쌍 (장소 ${numLocs}곳) → ${autoInterval}분 간격으로 배정합니다.`;
-  if (warn) confirmMsg += `\n\n⚠️ ${warn}`;
-  confirmMsg += '\n\n기존 배정이 초기화됩니다.';
-  if (!confirm(confirmMsg)) return;
-
   if (ev.interval_minutes !== autoInterval) {
     await db.from('events').update({ interval_minutes: autoInterval }).eq('id', ev.id);
     S.selEv.interval_minutes = autoInterval;
-    document.getElementById('assign-ev-info').innerHTML = `
-      <div class="ev-banner" style="cursor:default;margin-bottom:12px">
-        <h3>📅 ${fmtDate(ev.date)} ${ev.title||''}</h3>
-        <p>🕐 ${ev.start_time}~${ev.end_time} | 📍${(ev.locations||[]).join(', ')} | ⏱️ ${autoInterval}분 간격</p>
-      </div>`;
   }
-
   const slots = getSlots(ev.start_time, ev.end_time, S.selEv.interval_minutes);
-  const locs  = ev.locations || [];
+  const locs  = S.selEv.locations || [];
   const n     = S_pairs.length;
-
   await db.from('assignments').delete().eq('event_id', ev.id);
   S.assigns = {};
-
   const rows = [];
   let pi = 0;
   for (let si = 0; si < slots.length; si++) {
@@ -1173,9 +1179,66 @@ async function assignPairsToSlots() {
       pi++;
     }
   }
-
   if (rows.length) await db.from('assignments').insert(rows);
+  const ev2 = S.selEv;
+  document.getElementById('assign-ev-info').innerHTML = `
+    <div class="ev-banner" style="cursor:default;margin-bottom:12px">
+      <h3>📅 ${fmtDate(ev2.date)} ${ev2.title||''}</h3>
+      <p>🕐 ${ev2.start_time}~${ev2.end_time} | 📍${(ev2.locations||[]).join(', ')} | ⏱️ ${autoInterval}분 간격</p>
+    </div>`;
   renderSlots();
+}
+
+function showLocChoiceModal() {
+  document.getElementById('add-2nd-loc-wrap').style.display = 'none';
+  document.getElementById('inp-2nd-loc').value = '';
+  openModal('loc-choice-modal');
+}
+
+async function doAssign1Loc() {
+  closeModal('loc-choice-modal');
+  if (!confirm('1곳에서 6쌍 · 10분 간격으로 배정합니다. 기존 배정이 초기화됩니다.')) return;
+  await doAssignWithInterval(10);
+}
+
+function showAdd2ndLoc() {
+  document.getElementById('add-2nd-loc-wrap').style.display = 'block';
+  setTimeout(() => document.getElementById('inp-2nd-loc').focus(), 100);
+}
+
+async function doAssign2Loc() {
+  const newLoc = document.getElementById('inp-2nd-loc').value.trim();
+  if (!newLoc) { alert('장소 이름을 입력해주세요.'); return; }
+  closeModal('loc-choice-modal');
+  if (!confirm(`"${newLoc}" 장소를 추가하고, 2곳에서 각 3쌍 · 20분 간격으로 배정합니다.\n기존 배정이 초기화됩니다.`)) return;
+  const ev = S.selEv;
+  const newLocs = [...(ev.locations || []), newLoc];
+  await db.from('events').update({ locations: newLocs }).eq('id', ev.id);
+  S.selEv.locations = newLocs;
+  await doAssignWithInterval(20);
+}
+
+async function assignPairsToSlots() {
+  if (S_pairs.length === 0) { alert('먼저 짝을 만들어 주세요.'); return; }
+  const ev = S.selEv;
+  const numLocs = (ev.locations || []).length || 1;
+  const pairsPerLoc = Math.ceil(S_pairs.length / numLocs);
+
+  // 6쌍 × 1곳: 1곳(10분) or 2곳(20분) 선택
+  if (pairsPerLoc === 6 && numLocs === 1) {
+    showLocChoiceModal();
+    return;
+  }
+
+  const { interval: autoInterval, err, warn } = calcAutoInterval(S_pairs.length, numLocs);
+  if (err) { alert(err); return; }
+
+  let confirmMsg = `짝 ${S_pairs.length}쌍 (장소 ${numLocs}곳) → ${autoInterval}분 간격으로 배정합니다.`;
+  if (warn) confirmMsg += `\n\n⚠️ ${warn}`;
+  confirmMsg += '\n\n기존 배정이 초기화됩니다.';
+  if (!confirm(confirmMsg)) return;
+
+  await doAssignWithInterval(autoInterval);
 }
 
 async function addLateJoiners() {
