@@ -324,7 +324,30 @@ textarea { resize: vertical; min-height: 70px; }
         </div>
         <div id="pairs-list"></div>
         <button class="btn btn-primary mt-8" onclick="assignPairsToSlots()">📋 배정 시작</button>
-        <button class="btn btn-secondary mt-8" onclick="applyRecommendedInterval()">⚙️ 인원 맞춤 간격 조정</button>
+        <button class="btn btn-secondary mt-8" onclick="showIntervalAdjustPanel()">⚙️ 인원 맞춤 간격 조정</button>
+        <div id="interval-adjust-panel" style="display:none;margin-top:10px;background:#f8f9fa;border-radius:10px;padding:12px;border:1.5px solid #e0e0e0">
+          <div id="interval-adjust-info" style="font-size:13px;color:#333;margin-bottom:10px;line-height:1.6"></div>
+          <div style="display:flex;gap:8px">
+            <div style="flex:1">
+              <label style="font-size:11px;color:#666;font-weight:600;display:block;margin-bottom:4px">그룹 크기</label>
+              <select id="adj-grp" onchange="updateAdjCapacity()" style="width:100%;padding:8px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:14px;font-family:inherit">
+                <option value="2">2명</option>
+                <option value="3">3명</option>
+                <option value="4">4명</option>
+              </select>
+            </div>
+            <div style="flex:1">
+              <label style="font-size:11px;color:#666;font-weight:600;display:block;margin-bottom:4px">배정 간격</label>
+              <select id="adj-interval" onchange="updateAdjCapacity()" style="width:100%;padding:8px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:14px;font-family:inherit">
+                <option value="10">10분</option>
+                <option value="15">15분</option>
+                <option value="20">20분</option>
+              </select>
+            </div>
+          </div>
+          <div id="adj-capacity" style="font-size:12px;color:#2c5f2e;margin-top:8px;font-weight:600"></div>
+          <button class="btn btn-primary mt-8" onclick="applyIntervalAdjust()">적용</button>
+        </div>
       </div>
 
       <!-- STEP 3: 배정 결과 -->
@@ -1450,31 +1473,71 @@ async function addDirectAttendee() {
   renderPool();
 }
 
-async function applyRecommendedInterval() {
-  if (!S.selEv) return;
-  const ev = S.selEv;
-  const locs = (ev.locations || []).length || 1;
-  const totalMinutes = toM(ev.end_time) - toM(ev.start_time);
-  let numPairs;
-  if (S_pairs.length > 0) {
-    numPairs = S_pairs.length;
-  } else if (S.regs.length > 0) {
-    numPairs = Math.ceil(S.regs.length / (ev.group_size || 2));
-  } else {
-    alert('신청자가 없어 간격을 계산할 수 없습니다.'); return;
+function calcIntervalRecommendation(numPeople, numLocations) {
+  const options = [
+    { grp: 2, interval: 10 },
+    { grp: 2, interval: 15 },
+    { grp: 2, interval: 20 },
+    { grp: 3, interval: 10 },
+    { grp: 3, interval: 15 },
+    { grp: 3, interval: 20 },
+    { grp: 4, interval: 10 },
+    { grp: 4, interval: 15 },
+    { grp: 4, interval: 20 },
+  ];
+  for (const opt of options) {
+    if ((60 / opt.interval) * numLocations * opt.grp >= numPeople) return opt;
   }
-  const totalSlots = Math.ceil(numPairs / locs);
-  const interval = Math.max(5, Math.floor(totalMinutes / totalSlots));
-  const source = S_pairs.length > 0 ? `짝 ${numPairs}개` : `신청자 ${S.regs.length}명 기준 약 ${numPairs}짝`;
-  if (!confirm(`${source}에 맞게 배정 간격을 ${interval}분으로 조정할까요? (총 ${totalSlots}개 시간대)`)) return;
-  const { error } = await db.from('events').update({ interval_minutes: interval }).eq('id', ev.id);
+  return { grp: 4, interval: 10 };
+}
+
+function showIntervalAdjustPanel() {
+  if (!S.selEv) return;
+  const panel = document.getElementById('interval-adjust-panel');
+  if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
+  const numPeople = S.regs.length;
+  if (numPeople === 0) { alert('신청자가 없어 계산할 수 없습니다.'); return; }
+  const locs = (S.selEv.locations || []).length || 1;
+  const rec = calcIntervalRecommendation(numPeople, locs);
+  const cap = (60 / rec.interval) * locs * rec.grp;
+  document.getElementById('interval-adjust-info').innerHTML =
+    `신청인원 <b>${numPeople}명</b> · 장소 <b>${locs}곳</b> 기준 추천<br>` +
+    `<span style="color:#2c5f2e;font-weight:700">${rec.grp}인 / ${rec.interval}분 간격</span>` +
+    ` → 1시간에 최대 ${cap}명`;
+  document.getElementById('adj-grp').value = rec.grp;
+  document.getElementById('adj-interval').value = rec.interval;
+  updateAdjCapacity();
+  panel.style.display = 'block';
+}
+
+function updateAdjCapacity() {
+  if (!S.selEv) return;
+  const grp = parseInt(document.getElementById('adj-grp').value);
+  const interval = parseInt(document.getElementById('adj-interval').value);
+  const locs = (S.selEv.locations || []).length || 1;
+  const cap = (60 / interval) * locs * grp;
+  const numPeople = S.regs.length;
+  const ok = cap >= numPeople;
+  document.getElementById('adj-capacity').style.color = ok ? '#2c5f2e' : '#e53935';
+  document.getElementById('adj-capacity').textContent =
+    `이 설정으로 1시간에 최대 ${cap}명 (신청 ${numPeople}명 ${ok ? '✓ 가능' : '✗ 부족'})`;
+}
+
+async function applyIntervalAdjust() {
+  if (!S.selEv) return;
+  const grp = parseInt(document.getElementById('adj-grp').value);
+  const interval = parseInt(document.getElementById('adj-interval').value);
+  const ev = S.selEv;
+  const { error } = await db.from('events').update({ interval_minutes: interval, group_size: grp }).eq('id', ev.id);
   if (error) { alert('오류: ' + error.message); return; }
   S.selEv.interval_minutes = interval;
+  S.selEv.group_size = grp;
+  document.getElementById('interval-adjust-panel').style.display = 'none';
   renderSlots();
   document.getElementById('assign-ev-info').innerHTML = `
     <div class="ev-banner" style="cursor:default;margin-bottom:12px">
       <h3>📅 ${fmtDate(ev.date)} ${ev.title||''}</h3>
-      <p>🕐 ${ev.start_time}~${ev.end_time} | 📍${(ev.locations||[]).join(', ')} | ⏱️ ${interval}분 간격</p>
+      <p>🕐 ${ev.start_time}~${ev.end_time} | 📍${(ev.locations||[]).join(', ')} | ⏱️ ${interval}분 / ${grp}인</p>
     </div>`;
 }
 </script>
