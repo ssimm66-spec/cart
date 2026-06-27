@@ -776,7 +776,69 @@ function _signupEvCard(ev, myReg, allRegs, containerId, isLeader) {
     </div>
     ${actionHtml}
     ${attendeeHtml}
+    <div style="margin-top:8px;border-top:1px solid #f0f0f0;padding-top:6px">
+      <button onclick="toggleSignupOutput('${ev.id}',this)" style="width:100%;background:none;border:none;font-size:12px;color:#999;cursor:pointer;padding:4px 0;font-family:inherit">📋 배정표 보기</button>
+      <div id="signup-out-${ev.id}" style="display:none"></div>
+    </div>
   </div>`;
+}
+
+function buildOutputTableHtml(ev, assigns) {
+  const locs = ev.locations || [];
+  if (!locs.length) return '';
+  const am = {};
+  (assigns||[]).forEach(a => { am[`${a.location_index}_${a.slot_index}`] = a.member_names||[]; });
+  const isJangnal = ev.title === '장날 전시대';
+  let slots, amCount = 0;
+  if (isJangnal) {
+    const amSl = getSlots('09:15', '12:00', ev.interval_minutes || 20);
+    const pmSl = getSlots('12:00', '16:00', ev.interval_minutes || 20);
+    amCount = amSl.length;
+    slots = [...amSl, ...pmSl];
+  } else {
+    slots = getSlots(ev.start_time, ev.end_time, ev.interval_minutes);
+  }
+  if (!slots.length) return '';
+  const th = locs.map(l => `<th style="background:#f5c518;padding:6px 8px;border:1px solid #e0a800;font-size:11px">${l}</th>`).join('');
+  const amDiv = isJangnal ? `<tr><td colspan="${locs.length+1}" style="background:#fff3e0;color:#e65100;padding:3px 8px;font-size:10px;font-weight:700;border:1px solid #ffcc80">오전 09:15~12:00</td></tr>` : '';
+  const rows = slots.map((sl, si) => {
+    const isAmRow = isJangnal && si < amCount;
+    const pmDiv = (isJangnal && si === amCount)
+      ? `<tr><td colspan="${locs.length+1}" style="background:#e3f2fd;color:#1565c0;padding:3px 8px;font-size:10px;font-weight:700;border:1px solid #90caf9">오후 12:00~16:00</td></tr>`
+      : '';
+    const tds = locs.map((_,li) => {
+      const ms = am[`${li}_${si}`]||[];
+      return `<td style="padding:5px 6px;border:1px solid #e0e0e0;text-align:center;font-size:11px">${ms.join('<br>')||'—'}</td>`;
+    }).join('');
+    return `${pmDiv}<tr>
+      <td style="padding:5px 6px;border:1px solid #e0e0e0;text-align:center;font-weight:600;background:${isJangnal?(isAmRow?'#fff3e0':'#e3f2fd'):'#fffde7'};white-space:nowrap;font-size:11px">${sl.start}~${sl.end}</td>
+      ${tds}</tr>`;
+  }).join('');
+  return `<table style="width:100%;border-collapse:collapse;font-size:11px">
+    <thead><tr><th style="background:#f5c518;padding:6px 8px;border:1px solid #e0a800;font-size:11px">시간</th>${th}</tr></thead>
+    <tbody>${amDiv}${rows}</tbody>
+  </table>`;
+}
+
+async function toggleSignupOutput(evId, btn) {
+  const container = document.getElementById(`signup-out-${evId}`);
+  if (!container) return;
+  if (container.dataset.loaded) {
+    const hide = container.style.display !== 'none';
+    container.style.display = hide ? 'none' : '';
+    btn.textContent = hide ? '📋 배정표 보기' : '📋 배정표 닫기';
+    return;
+  }
+  container.style.display = '';
+  container.dataset.loaded = 'true';
+  btn.textContent = '📋 배정표 닫기';
+  container.innerHTML = '<div style="font-size:12px;color:#aaa;padding:8px 0;text-align:center">⏳ 불러오는 중...</div>';
+  const { data: ev }      = await db.from('events').select('*').eq('id', evId).maybeSingle();
+  const { data: assigns } = await db.from('assignments').select('*').eq('event_id', evId);
+  const html = buildOutputTableHtml(ev, assigns || []);
+  container.innerHTML = html
+    ? `<div style="overflow-x:auto;margin-top:4px;border-radius:6px;overflow:hidden">${html}</div>`
+    : '<div style="font-size:12px;color:#aaa;padding:8px 0;text-align:center">아직 배정이 없습니다</div>';
 }
 
 async function signupJangnal(evId, ampm, containerId, isLeader) {
