@@ -83,10 +83,14 @@ textarea { resize: vertical; min-height: 70px; }
 .chip.done { background: #fff3e0; color: #e65100; }
 
 /* Pair member drag chip */
-.pair-member { display: inline-flex; align-items: center; gap: 4px; background: #e8f5e9; color: #1b5e20; border-radius: 16px; padding: 4px 10px; font-size: 13px; font-weight: 600; margin: 2px; cursor: grab; border: 1.5px solid transparent; user-select: none; }
+.pair-member { display: inline-flex; align-items: center; gap: 4px; background: #e8f5e9; color: #1b5e20; border-radius: 16px; padding: 4px 10px; font-size: 13px; font-weight: 600; margin: 2px; cursor: grab; border: 1.5px solid transparent; user-select: none; touch-action: none; -webkit-user-select: none; }
 .pair-member:active { cursor: grabbing; }
 .pair-member.dragging { opacity: 0.4; }
+.pair-card { user-select: none; -webkit-user-select: none; }
 .pair-card.drag-over { border-color: #2c5f2e !important; background: #f0f8f0; }
+.pair-move-btn { background: none; border: 1px solid #e0e0e0; border-radius: 4px; color: #aaa; font-size: 13px; cursor: pointer; padding: 2px 5px; line-height: 1; touch-action: manipulation; }
+.pair-move-btn:active { background: #f0f0f0; color: #333; }
+.pair-move-btn:disabled { opacity: 0.2; cursor: default; }
 .chip-pool { display: flex; flex-wrap: wrap; padding: 4px 0; }
 
 /* Assignment slots */
@@ -1225,7 +1229,6 @@ function backToEvSelect() { loadAssignEvSelect(); }
 // ── PAIRING ───────────────────────────────────────────────
 let S_pairs    = [];   // [{ names: ['A','B'] }, ...]
 let S_selPair  = new Set(); // 짝 만들기용 선택
-let pairDragIdx = null;
 
 function pairsKey(evId) { return `pairs_${evId}`; }
 function savePairsLocal() { localStorage.setItem(pairsKey(S.selEv.id), JSON.stringify(S_pairs)); }
@@ -1344,7 +1347,7 @@ function renderPairs() {
   const n = S_pairs.length;
   const isJangnal = S.selEv && S.selEv.title === '장날 전시대';
 
-  function pairCard(p, globalIdx, localNum) {
+  function pairCard(p, globalIdx, localNum, isFirst, isLast) {
     const i = globalIdx;
     return `
     <div class="pair-card" id="pair-card-${i}"
@@ -1352,23 +1355,21 @@ function renderPairs() {
       ondragleave="pairCardDragLeave(${i})"
       ondrop="memberDropOnPair(event,${i})"
       style="display:flex;align-items:center;background:#f8f9fa;border-radius:8px;padding:10px 12px;margin-bottom:6px;border:1.5px solid #e0e0e0;gap:6px;">
-      <span draggable="true"
-        ondragstart="pairDragStart(event,${i})"
-        ondragover="event.stopPropagation();event.preventDefault()"
-        ondrop="pairDragDrop(event,${i})"
-        ondragend="pairDragEnd()"
-        style="color:#bbb;font-size:18px;cursor:grab;padding:0 4px;flex-shrink:0"
-        title="드래그해서 순서 변경">☰</span>
+      <div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0">
+        <button class="pair-move-btn" onclick="movePairUp(${i})" ${isFirst?'disabled':''}>▲</button>
+        <button class="pair-move-btn" onclick="movePairDown(${i})" ${isLast?'disabled':''}>▼</button>
+      </div>
       <span style="font-size:12px;color:#999;flex-shrink:0">${localNum}.</span>
       <div style="display:flex;flex-wrap:wrap;flex:1;gap:2px">
         ${p.names.map(name => `
           <span class="pair-member" draggable="true"
+            ontouchstart="event.preventDefault()"
             ondragstart="memberDragStart(event,${i},'${name}')"
             ondragend="memberDragEnd(event)">
             ${name}<span onclick="event.stopPropagation();removeMemberFromPair(${i},'${name.replace(/'/g,"\\'")}')" style="margin-left:4px;color:#e53935;font-size:12px;cursor:pointer">✕</span>
           </span>`).join('')}
       </div>
-      <button onclick="removePair(${i})" style="background:none;border:none;color:#e53935;font-size:18px;cursor:pointer;padding:0 4px;flex-shrink:0">✕</button>
+      <button onclick="removePair(${i})" style="background:none;border:none;color:#e53935;font-size:18px;cursor:pointer;padding:0 4px;flex-shrink:0;touch-action:manipulation">✕</button>
     </div>`;
   }
 
@@ -1380,26 +1381,25 @@ function renderPairs() {
     const otherEntries = S_pairs.map((p, i) => ({p, i})).filter(e => !e.p.ampm);
     if (amEntries.length) {
       html += `<div style="font-size:12px;font-weight:700;color:#e65100;margin:8px 0 4px;padding-left:4px">오전 09:15~12:00</div>`;
-      amEntries.forEach(({p, i}, li) => { html += pairCard(p, i, li + 1); });
+      amEntries.forEach(({p, i}, li) => { html += pairCard(p, i, li + 1, li===0, li===amEntries.length-1); });
     }
     if (pmEntries.length) {
       html += `<div style="font-size:12px;font-weight:700;color:#1565c0;margin:10px 0 4px;padding-left:4px">오후 12:00~16:00</div>`;
-      pmEntries.forEach(({p, i}, li) => { html += pairCard(p, i, li + 1); });
+      pmEntries.forEach(({p, i}, li) => { html += pairCard(p, i, li + 1, li===0, li===pmEntries.length-1); });
     }
     if (otherEntries.length) {
       html += `<div style="font-size:12px;font-weight:700;color:#888;margin:10px 0 4px;padding-left:4px">미분류</div>`;
-      otherEntries.forEach(({p, i}, li) => { html += pairCard(p, i, li + 1); });
+      otherEntries.forEach(({p, i}, li) => { html += pairCard(p, i, li + 1, li===0, li===otherEntries.length-1); });
     }
   } else if (locs.length > 1) {
-    // Round-robin: pair i → location (i % locs.length), gender-balanced
     locs.forEach((loc, li) => {
       const locEntries = S_pairs.map((p, i) => ({p, i})).filter(({i}) => i % locs.length === li);
       if (!locEntries.length) return;
       html += `<div style="font-size:12px;font-weight:700;color:#2c5f2e;margin:10px 0 4px;padding-left:4px">📍 ${loc}</div>`;
-      locEntries.forEach(({p, i}, localIdx) => { html += pairCard(p, i, localIdx + 1); });
+      locEntries.forEach(({p, i}, localIdx) => { html += pairCard(p, i, localIdx + 1, localIdx===0, localIdx===locEntries.length-1); });
     });
   } else {
-    S_pairs.forEach((p, i) => { html += pairCard(p, i, i + 1); });
+    S_pairs.forEach((p, i) => { html += pairCard(p, i, i + 1, i===0, i===n-1); });
   }
 
   html += `<div id="pair-unassign-zone"
@@ -1412,23 +1412,24 @@ function renderPairs() {
   el.innerHTML = html;
 }
 
-// ── 짝 순서 드래그 ──
-function pairDragStart(e, i) {
-  pairDragIdx = i;
-  e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('type', 'pair-order');
-  e.stopPropagation();
-}
-function pairDragDrop(e, i) {
-  e.preventDefault(); e.stopPropagation();
-  if (pairDragIdx === null || pairDragIdx === i) { pairDragIdx = null; return; }
-  const item = S_pairs.splice(pairDragIdx, 1)[0];
-  S_pairs.splice(i, 0, item);
-  pairDragIdx = null;
+// ── 짝 순서 이동 (▲/▼ 버튼) ──
+function movePairUp(i) {
+  const ampm = S_pairs[i]?.ampm;
+  const isJangnal = S.selEv?.title === '장날 전시대';
+  let j = i - 1;
+  if (isJangnal) { while (j >= 0 && S_pairs[j]?.ampm !== ampm) j--; }
+  if (j < 0) return;
+  [S_pairs[j], S_pairs[i]] = [S_pairs[i], S_pairs[j]];
   savePairsLocal(); renderPairs();
 }
-function pairDragEnd() {
-  pairDragIdx = null;
+function movePairDown(i) {
+  const ampm = S_pairs[i]?.ampm;
+  const isJangnal = S.selEv?.title === '장날 전시대';
+  let j = i + 1;
+  if (isJangnal) { while (j < S_pairs.length && S_pairs[j]?.ampm !== ampm) j++; }
+  if (j >= S_pairs.length) return;
+  [S_pairs[i], S_pairs[j]] = [S_pairs[j], S_pairs[i]];
+  savePairsLocal(); renderPairs();
 }
 
 // ── 멤버 → 다른 짝으로 드래그 ──
