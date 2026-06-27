@@ -163,8 +163,8 @@ textarea { resize: vertical; min-height: 70px; }
 .date-header.today { border-bottom-color: #2c5f2e; }
 .date-lbl { font-size: 15px; font-weight: 700; color: #333; }
 .today-bdg { background: #2c5f2e; color: white; font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 700; }
-.signup-ev-card { background: white; border-radius: 12px; padding: 14px 16px; margin-bottom: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); border: 2px solid transparent; }
-.signup-ev-card.signed { border-color: #4caf50; }
+.signup-ev-card { border-radius: 12px; padding: 14px 16px; margin-bottom: 8px; }
+.signup-ev-card.signed { outline: 2px solid #4caf50; outline-offset: -2px; }
 .signup-time-btn { display: block; padding: 12px 8px; border: 2px solid #e0e0e0; border-radius: 10px; background: white; font-size: 14px; font-weight: 600; cursor: pointer; text-align: center; color: #333; transition: all 0.15s; line-height: 1.6; font-family: inherit; }
 .signup-time-btn.selected { background: #2c5f2e; color: white; border-color: #2c5f2e; }
 .attendee-section { margin-top: 10px; padding-top: 10px; border-top: 1px solid #f0f0f0; }
@@ -696,6 +696,16 @@ async function loadSignupView(containerId, isLeader) {
   el.innerHTML = html;
 }
 
+function evColorTheme(ev) {
+  const t = ev.title || '';
+  const dow = new Date(ev.date + 'T12:00:00').getDay();
+  if (t.includes('장날'))            return { accent: '#e65100', bg: '#fff8f3' };
+  if (t.includes('목요') || dow===4) return { accent: '#5c35b5', bg: '#f5f0ff' };
+  if (t.includes('금요') || dow===5) return { accent: '#00796b', bg: '#f0faf8' };
+  if (t.includes('토요') || dow===6) return { accent: '#1565c0', bg: '#f0f4ff' };
+  return { accent: '#2c5f2e', bg: '#f8fff8' };
+}
+
 function _signupEvCard(ev, myReg, allRegs, containerId, isLeader) {
   const isJangnal = ev.title === '장날 전시대';
   const locs = (ev.locations || []).join(', ');
@@ -753,7 +763,10 @@ function _signupEvCard(ev, myReg, allRegs, containerId, isLeader) {
     ? `<span style="background:#2c5f2e;color:white;border-radius:12px;padding:3px 9px;font-size:11px;font-weight:700;white-space:nowrap">✓${mySlot ? ' '+mySlot : ' 신청'}</span>`
     : '';
 
-  return `<div class="signup-ev-card${isSigned?' signed':''}">
+  const theme = evColorTheme(ev);
+  const cardShadow = `inset 4px 0 0 ${theme.accent}, 0 1px 4px rgba(0,0,0,0.08)`;
+
+  return `<div class="signup-ev-card${isSigned?' signed':''}" style="background:${theme.bg};box-shadow:${cardShadow}">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
       <div style="flex:1">
         <div style="font-weight:700;font-size:15px">${ev.title||'전시대'}</div>
@@ -806,7 +819,9 @@ async function loadJsdTab() {
   const past     = (evs || []).filter(e => e.date <  today);
 
   document.getElementById('jsd-upcoming').innerHTML = upcoming.length
-    ? upcoming.map(e => evCard(e, true)).join('')
+    ? `<div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:8px;min-height:28px">
+        <button id="bulk-del-btn" class="btn btn-danger btn-sm" style="display:none" onclick="bulkDeleteEvs()">선택 삭제 (<span id="bulk-sel-cnt">0</span>개)</button>
+      </div>` + upcoming.map(e => evCard(e, true)).join('')
     : '<p class="text-muted">예정된 전시대가 없습니다.</p>';
 
   document.getElementById('jsd-past').innerHTML = past.length
@@ -815,16 +830,23 @@ async function loadJsdTab() {
 }
 
 function evCard(e, upcoming) {
+  const theme = evColorTheme(e);
   const locs = (e.locations || []).join(', ');
   const pubBadge = e.is_active
     ? '<span class="badge badge-green">공개중</span>'
     : '<span class="badge badge-orange">비공개</span>';
+  const chk = upcoming
+    ? `<input type="checkbox" data-ev-id="${e.id}" onchange="updateBulkSelState()" style="width:16px;height:16px;cursor:pointer;accent-color:#e53935;flex-shrink:0;margin-top:2px">`
+    : '';
   return `
-    <div class="card" style="padding:12px 14px">
+    <div class="card" style="padding:12px 14px;border-left:4px solid ${theme.accent};background:${theme.bg}">
       <div class="flex-between mb-8">
-        <div>
-          <div style="font-weight:700;font-size:14px">${fmtDate(e.date)} ${e.title||''} ${pubBadge}</div>
-          <div class="text-muted" style="font-size:12px;margin-top:2px">${e.start_time}~${e.end_time} | 📍${locs}</div>
+        <div style="display:flex;align-items:flex-start;gap:8px;flex:1">
+          ${chk}
+          <div>
+            <div style="font-weight:700;font-size:14px">${fmtDate(e.date)} ${e.title||''} ${pubBadge}</div>
+            <div class="text-muted" style="font-size:12px;margin-top:2px">${e.start_time}~${e.end_time} | 📍${locs}</div>
+          </div>
         </div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -862,6 +884,23 @@ async function toggleEvActive(id, val) {
 async function deleteEv(id) {
   if (!confirm('전시대 운영을 삭제할까요? 신청 및 배정 데이터도 함께 삭제됩니다.')) return;
   await db.from('events').delete().eq('id', id);
+  loadJsdTab();
+}
+
+function updateBulkSelState() {
+  const checks = document.querySelectorAll('[data-ev-id]:checked');
+  const btn = document.getElementById('bulk-del-btn');
+  const cnt = document.getElementById('bulk-sel-cnt');
+  if (!btn) return;
+  btn.style.display = checks.length ? '' : 'none';
+  if (cnt) cnt.textContent = checks.length;
+}
+
+async function bulkDeleteEvs() {
+  const ids = [...document.querySelectorAll('[data-ev-id]:checked')].map(c => c.dataset.evId);
+  if (!ids.length) return;
+  if (!confirm(`선택한 전시대 ${ids.length}개를 삭제할까요?\n신청 및 배정 데이터도 함께 삭제됩니다.`)) return;
+  for (const id of ids) await db.from('events').delete().eq('id', id);
   loadJsdTab();
 }
 
