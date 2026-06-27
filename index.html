@@ -945,10 +945,12 @@ function renderPool() {
     ? S.regs.map(r => {
         const isPaired = inPair.has(r.member_name);
         const isSel    = S_selPair.has(r.member_name);
+        const nm = r.member_name.replace(/'/g,"\\'");
         return `<div class="chip ${isPaired?'done':''} ${isSel?'selected':''}"
-          onclick="tapForPair('${r.member_name}')"
+          onclick="tapForPair('${nm}')"
           title="${(r.time_slots||[]).join(', ')||'시간 미선택'}">
           ${r.member_name}${isPaired?' ✓':''}
+          <span onclick="event.stopPropagation();deleteFromPool('${nm}')" style="margin-left:6px;color:#e53935;font-size:11px;opacity:0.8">✕</span>
         </div>`;
       }).join('')
     : '<p class="text-muted" style="font-size:13px">신청자가 없습니다.</p>';
@@ -1528,6 +1530,20 @@ function getDow(d) {
   return ['일','월','화','수','목','금','토'][new Date(d).getDay()]+'요일';
 }
 
+async function deleteFromPool(memberName) {
+  const reg = S.regs.find(r => r.member_name === memberName);
+  if (!reg) return;
+  if (!confirm(`${memberName}님을 신청자 목록에서 삭제할까요?`)) return;
+  await db.from('registrations').delete().eq('id', reg.id);
+  S.regs = S.regs.filter(r => r.member_name !== memberName);
+  S_pairs = S_pairs.map(p => ({ names: p.names.filter(n => n !== memberName) })).filter(p => p.names.length > 0);
+  S_selPair.delete(memberName);
+  savePairsLocal();
+  document.getElementById('reg-cnt').textContent = `(${S.regs.length}명)`;
+  renderPool();
+  renderPairs();
+}
+
 function removeMemberFromPair(pairIdx, name) {
   S_pairs[pairIdx].names = S_pairs[pairIdx].names.filter(n => n !== name);
   if (S_pairs[pairIdx].names.length === 0) S_pairs.splice(pairIdx, 1);
@@ -1559,13 +1575,15 @@ async function addDirectAttendee() {
   const name = nameInput.value.trim();
   if (!name) return;
   if (!S.selEv) return;
+  const member = (S._membersMeta || []).find(m => m.name === name);
+  if (!member) { alert(`"${name}"님은 명단에 없습니다. 먼저 명단 탭에서 추가해주세요.`); return; }
   if (S.regs.some(r => r.member_name === name)) {
     alert(`${name}님은 이미 신청자 목록에 있습니다.`); return;
   }
   const ev = S.selEv;
   const allSlots = getHourSlots(ev.start_time, ev.end_time).map(s => `${s.start} ~ ${s.end}`);
   const { data, error } = await db.from('registrations').insert({
-    event_id: ev.id, member_id: null, member_name: name, time_slots: allSlots
+    event_id: ev.id, member_id: member.id, member_name: name, time_slots: allSlots
   }).select().maybeSingle();
   if (error) { alert('추가 실패: ' + error.message); return; }
   S.regs.push({ id: data.id, event_id: ev.id, member_id: null, member_name: name, time_slots: allSlots });
