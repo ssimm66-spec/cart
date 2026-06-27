@@ -156,6 +156,21 @@ textarea { resize: vertical; min-height: 70px; }
 .reg-summary { background: #e8f5e9; border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
 .reg-summary .rs-name { font-size: 14px; font-weight: 700; color: #1b5e20; }
 .reg-summary .rs-time { font-size: 13px; color: #2c5f2e; margin-top: 2px; }
+
+/* Calendar signup view */
+.date-group { margin-bottom: 20px; }
+.date-header { display: flex; align-items: center; gap: 8px; padding: 6px 4px 8px; border-bottom: 2px solid #e8e8e8; margin-bottom: 10px; }
+.date-header.today { border-bottom-color: #2c5f2e; }
+.date-lbl { font-size: 15px; font-weight: 700; color: #333; }
+.today-bdg { background: #2c5f2e; color: white; font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 700; }
+.signup-ev-card { background: white; border-radius: 12px; padding: 14px 16px; margin-bottom: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); border: 2px solid transparent; }
+.signup-ev-card.signed { border-color: #4caf50; }
+.signup-time-btn { display: block; padding: 12px 8px; border: 2px solid #e0e0e0; border-radius: 10px; background: white; font-size: 14px; font-weight: 600; cursor: pointer; text-align: center; color: #333; transition: all 0.15s; line-height: 1.6; font-family: inherit; }
+.signup-time-btn.selected { background: #2c5f2e; color: white; border-color: #2c5f2e; }
+.attendee-section { margin-top: 10px; padding-top: 10px; border-top: 1px solid #f0f0f0; }
+.attendee-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 3px; font-size: 12px; }
+.attendee-lbl { color: #888; white-space: nowrap; min-width: 66px; font-weight: 600; }
+.attendee-names { color: #444; flex: 1; line-height: 1.5; }
 </style>
 </head>
 <body>
@@ -625,9 +640,13 @@ async function doLogin() {
 }
 
 // ── MEMBER FLOW ───────────────────────────────────────────
-// Step 1: 전시대 목록 선택
 async function memberShowList() {
-  const el = document.getElementById('m-content');
+  loadSignupView('m-content', false);
+}
+
+// ── UNIFIED SIGNUP VIEW ────────────────────────────────────
+async function loadSignupView(containerId, isLeader) {
+  const el = document.getElementById(containerId);
   el.innerHTML = '<div class="loading">⏳ 불러오는 중...</div>';
 
   const today = new Date().toISOString().split('T')[0];
@@ -635,140 +654,147 @@ async function memberShowList() {
     .select('*').eq('is_active', true).gte('date', today).order('date');
 
   if (!evs || evs.length === 0) {
-    el.innerHTML = `<div class="reg-status"><div class="reg-icon">📭</div><h3>예정된 전시대가 없습니다</h3><p class="text-muted">인도자가 전시대 운영을 등록하면 여기에 표시됩니다.</p></div>`;
+    el.innerHTML = `<div class="reg-status"><div class="reg-icon">📭</div><h3>예정된 전시대가 없습니다</h3><p class="text-muted">인도자가 전시대를 등록하면 여기에 표시됩니다.</p></div>`;
     return;
   }
 
-  // 이미 신청한 이벤트 목록
-  const { data: myRegs } = await db.from('registrations').select('*').eq('member_id', S.user.id);
-  const regMap = {};
-  (myRegs || []).forEach(r => { regMap[r.event_id] = r; });
+  let myQ = db.from('registrations').select('*');
+  myQ = isLeader ? myQ.eq('member_name', S.user.name).is('member_id', null) : myQ.eq('member_id', S.user.id);
+  const { data: myRegs } = await myQ;
+  const myRegMap = {};
+  (myRegs || []).forEach(r => { myRegMap[r.event_id] = r; });
 
-  el.innerHTML = `
-    <div class="sec-title">전시대를 선택하세요</div>
-    ${evs.map(ev => {
-      const reg = regMap[ev.id];
-      const locs = (ev.locations || []).join(', ');
-      return `
-        <div class="ev-banner ${reg ? 'selected' : ''}" onclick="memberPickEv('${ev.id}')">
-          <h3>📅 ${fmtDate(ev.date)} ${ev.title ? '· ' + ev.title : ''}</h3>
-          <p>🕐 ${ev.start_time} ~ ${ev.end_time} &nbsp;|&nbsp; 📍 ${locs}</p>
-          ${reg
-            ? `<p style="margin-top:6px;font-size:12px;background:rgba(255,255,255,0.2);border-radius:6px;padding:4px 8px;display:inline-block">✅ 신청완료 · ${(reg.time_slots||[]).join(', ')}</p>`
-            : ev.title === '장날 전시대'
-              ? '<p style="margin-top:6px;font-size:12px;opacity:0.7">오전 / 오후 선택하기 →</p>'
-              : '<p style="margin-top:6px;font-size:12px;opacity:0.7">탭해서 바로 신청 →</p>'}
-        </div>`;
-    }).join('')}`;
-}
+  const evIds = evs.map(e => e.id);
+  const { data: allRegs } = await db.from('registrations').select('*').in('event_id', evIds);
+  const allRegsMap = {};
+  (allRegs || []).forEach(r => {
+    if (!allRegsMap[r.event_id]) allRegsMap[r.event_id] = [];
+    allRegsMap[r.event_id].push(r);
+  });
 
-async function memberPickEv(evId) {
-  const el = document.getElementById('m-content');
-  el.innerHTML = '<div class="loading">⏳ 불러오는 중...</div>';
+  const byDate = {};
+  evs.forEach(ev => { if (!byDate[ev.date]) byDate[ev.date] = []; byDate[ev.date].push(ev); });
 
-  const { data: ev } = await db.from('events').select('*').eq('id', evId).maybeSingle();
-  S.mSelEv = ev;
-  const { data: reg } = await db.from('registrations').select('*')
-    .eq('event_id', evId).eq('member_id', S.user.id).maybeSingle();
-  S.mExistReg = reg;
+  const dayNames = ['일','월','화','수','목','금','토'];
+  let html = `<div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+    <button class="btn btn-outline btn-sm" onclick="loadSignupView('${containerId}',${isLeader})">🔄 새로고침</button>
+  </div>`;
 
-  const lbl = (ev.locations || []).join(', ');
-  const evBanner = `
-    <div class="ev-banner" style="cursor:default;margin-bottom:14px">
-      <h3>📅 ${fmtDate(ev.date)} ${ev.title ? '· ' + ev.title : ''}</h3>
-      <p>📍 ${lbl}</p>
-    </div>`;
-
-  if (ev.title === '장날 전시대') {
-    // 오전/오후 선택
-    const amSel = reg && (reg.time_slots||[]).some(s => s.includes('09:15'));
-    const pmSel = reg && (reg.time_slots||[]).some(s => s.includes('12:00'));
-    el.innerHTML = `
-      <button class="back-btn" onclick="memberShowList()">← 전시대 목록</button>
-      ${evBanner}
-      ${reg ? `<div style="background:#e8f5e9;border-radius:10px;padding:11px 14px;margin-bottom:14px;font-size:14px;display:flex;align-items:center;justify-content:space-between">
-        <span>✅ <b>${amSel ? '오전' : '오후'}</b> 신청완료</span>
-        <button class="btn btn-danger btn-sm" onclick="cancelReg('${evId}','${reg.id}')">취소</button>
-      </div>` : ''}
-      <div class="sec-title">참여 가능한 시간을 선택하세요</div>
-      <div style="display:flex;gap:10px;margin-top:8px">
-        <button class="time-slot-btn ${amSel?'selected':''}" onclick="registerJangnal('${evId}','am')"
-          style="flex:1;font-size:15px;padding:18px 10px;line-height:1.6">
-          오전<br><span style="font-size:12px;font-weight:400">09:15 ~ 12:00</span>
-        </button>
-        <button class="time-slot-btn ${pmSel?'selected':''}" onclick="registerJangnal('${evId}','pm')"
-          style="flex:1;font-size:15px;padding:18px 10px;line-height:1.6">
-          오후<br><span style="font-size:12px;font-weight:400">12:00 ~ 16:00</span>
-        </button>
-      </div>`;
-  } else {
-    // 즉시 신청
-    if (!reg) {
-      const { data: newReg } = await db.from('registrations').insert({
-        event_id: evId, member_id: S.user.id, member_name: S.user.name,
-        time_slots: [`${ev.start_time} ~ ${ev.end_time}`]
-      }).select().maybeSingle();
-      S.mExistReg = newReg;
-    }
-    el.innerHTML = `
-      <button class="back-btn" onclick="memberShowList()">← 전시대 목록</button>
-      ${evBanner}
-      <div class="reg-status">
-        <div class="reg-icon">✅</div>
-        <div class="rs-info">
-          <div class="rs-name">신청이 완료됐습니다!</div>
-          <div class="rs-time">🕐 ${ev.start_time} ~ ${ev.end_time}</div>
-        </div>
-        <button class="btn btn-danger mt-8" onclick="cancelReg('${evId}','${S.mExistReg.id}')">신청 취소</button>
-      </div>`;
-  }
-}
-
-async function registerJangnal(evId, ampm) {
-  const slot = ampm === 'am' ? '09:15 ~ 12:00' : '12:00 ~ 16:00';
-  if (S.mExistReg) {
-    await db.from('registrations').update({ time_slots: [slot] }).eq('id', S.mExistReg.id);
-  } else {
-    await db.from('registrations').insert({
-      event_id: evId, member_id: S.user.id, member_name: S.user.name, time_slots: [slot]
-    });
-  }
-  memberPickEv(evId);
-}
-
-async function submitReg(evId) {
-  if (S.mSelSlots.length === 0) {
-    document.getElementById('slot-err').textContent = '시간을 하나 이상 선택해주세요.';
-    return;
-  }
-  document.getElementById('slot-err').textContent = '';
-
-  if (S.mExistReg) {
-    await db.from('registrations').update({ time_slots: S.mSelSlots }).eq('id', S.mExistReg.id);
-  } else {
-    await db.from('registrations').insert({
-      event_id: evId, member_id: S.user.id, member_name: S.user.name, time_slots: S.mSelSlots
-    });
-  }
-
-  const el = document.getElementById('m-content');
-  el.innerHTML = `
-    <div class="reg-status">
-      <div class="reg-icon">✅</div>
-      <h3>신청 완료!</h3>
-      <p>${S.user.name}님 신청이 완료되었습니다.</p>
-      <div class="reg-summary">
-        <div class="rs-name">📅 ${fmtDate(S.mSelEv.date)} ${S.mSelEv.title || ''}</div>
-        <div class="rs-time">🕐 ${S.mSelSlots.join(' / ')}</div>
+  for (const date of Object.keys(byDate).sort()) {
+    const dayEvs = byDate[date];
+    const [,m,d] = date.split('-');
+    const dow = dayNames[new Date(date + 'T12:00:00').getDay()];
+    const isToday = date === today;
+    html += `<div class="date-group">
+      <div class="date-header${isToday ? ' today' : ''}">
+        <span class="date-lbl">${parseInt(m)}월 ${parseInt(d)}일 (${dow})</span>
+        ${isToday ? '<span class="today-bdg">오늘</span>' : ''}
       </div>
-      <button class="btn btn-outline" onclick="memberShowList()">다른 전시대 신청하기</button>
+      ${dayEvs.map(ev => _signupEvCard(ev, myRegMap[ev.id], allRegsMap[ev.id]||[], containerId, isLeader)).join('')}
     </div>`;
+  }
+  el.innerHTML = html;
 }
 
-async function cancelReg(evId, regId) {
+function _signupEvCard(ev, myReg, allRegs, containerId, isLeader) {
+  const isJangnal = ev.title === '장날 전시대';
+  const locs = (ev.locations || []).join(', ');
+  const isSigned = !!myReg;
+  const mySlot = isSigned && isJangnal
+    ? ((myReg.time_slots||[]).some(s => s.includes('09:15')) ? '오전' : '오후')
+    : '';
+
+  // Action buttons
+  let actionHtml = '';
+  if (isJangnal) {
+    const amSel = mySlot === '오전';
+    const pmSel = mySlot === '오후';
+    actionHtml = `<div style="display:flex;gap:8px;margin-top:10px">
+      <button class="signup-time-btn${amSel?' selected':''}"
+        onclick="signupJangnal('${ev.id}','am','${containerId}',${isLeader})" style="flex:1">
+        오전<br><span style="font-size:11px;font-weight:400">09:15~12:00</span>
+      </button>
+      <button class="signup-time-btn${pmSel?' selected':''}"
+        onclick="signupJangnal('${ev.id}','pm','${containerId}',${isLeader})" style="flex:1">
+        오후<br><span style="font-size:11px;font-weight:400">12:00~16:00</span>
+      </button>
+    </div>
+    ${isSigned ? `<button class="btn btn-danger btn-sm" style="margin-top:8px;width:100%"
+      onclick="cancelSignup('${ev.id}','${myReg.id}','${containerId}',${isLeader})">신청 취소</button>` : ''}`;
+  } else if (isSigned) {
+    actionHtml = `<div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+      <div style="flex:1;background:#e8f5e9;border-radius:8px;padding:8px 12px;font-size:13px;color:#2c5f2e;font-weight:600">✅ 신청완료</div>
+      <button class="btn btn-danger btn-sm"
+        onclick="cancelSignup('${ev.id}','${myReg.id}','${containerId}',${isLeader})">취소</button>
+    </div>`;
+  } else {
+    actionHtml = `<button class="btn btn-primary" style="margin-top:10px;padding:11px"
+      onclick="signupNow('${ev.id}','${containerId}',${isLeader})">봉사 신청하기</button>`;
+  }
+
+  // Attendee list
+  let attendeeHtml = '';
+  if (!allRegs.length) {
+    attendeeHtml = `<div class="attendee-section"><div style="font-size:12px;color:#bbb">아직 신청자가 없습니다</div></div>`;
+  } else if (isJangnal) {
+    const am = allRegs.filter(r => (r.time_slots||[]).some(s => s.includes('09:15')));
+    const pm = allRegs.filter(r => (r.time_slots||[]).some(s => s.includes('12:00')));
+    attendeeHtml = `<div class="attendee-section">
+      <div class="attendee-row"><span class="attendee-lbl">오전 ${am.length}명</span><span class="attendee-names">${am.map(r=>r.member_name).join(', ')||'—'}</span></div>
+      <div class="attendee-row"><span class="attendee-lbl">오후 ${pm.length}명</span><span class="attendee-names">${pm.map(r=>r.member_name).join(', ')||'—'}</span></div>
+    </div>`;
+  } else {
+    attendeeHtml = `<div class="attendee-section">
+      <div class="attendee-row"><span class="attendee-lbl">신청 ${allRegs.length}명</span><span class="attendee-names">${allRegs.map(r=>r.member_name).join(', ')}</span></div>
+    </div>`;
+  }
+
+  const badge = isSigned
+    ? `<span style="background:#2c5f2e;color:white;border-radius:12px;padding:3px 9px;font-size:11px;font-weight:700;white-space:nowrap">✓${mySlot ? ' '+mySlot : ' 신청'}</span>`
+    : '';
+
+  return `<div class="signup-ev-card${isSigned?' signed':''}">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:15px">${ev.title||'전시대'}</div>
+        <div style="font-size:12px;color:#777;margin-top:2px">🕐 ${ev.start_time}~${ev.end_time}&nbsp;·&nbsp;📍${locs||'미정'}</div>
+      </div>
+      ${badge}
+    </div>
+    ${actionHtml}
+    ${attendeeHtml}
+  </div>`;
+}
+
+async function signupJangnal(evId, ampm, containerId, isLeader) {
+  const slot = ampm === 'am' ? '09:15 ~ 12:00' : '12:00 ~ 16:00';
+  let q = db.from('registrations').select('id').eq('event_id', evId);
+  q = isLeader ? q.eq('member_name', S.user.name).is('member_id', null) : q.eq('member_id', S.user.id);
+  const { data: exist } = await q.maybeSingle();
+  if (exist) {
+    await db.from('registrations').update({ time_slots: [slot] }).eq('id', exist.id);
+  } else {
+    await db.from('registrations').insert({
+      event_id: evId, member_id: isLeader ? null : S.user.id,
+      member_name: S.user.name, time_slots: [slot]
+    });
+  }
+  loadSignupView(containerId, isLeader);
+}
+
+async function signupNow(evId, containerId, isLeader) {
+  const { data: ev } = await db.from('events').select('start_time,end_time').eq('id', evId).maybeSingle();
+  await db.from('registrations').insert({
+    event_id: evId, member_id: isLeader ? null : S.user.id,
+    member_name: S.user.name, time_slots: [`${ev.start_time} ~ ${ev.end_time}`]
+  });
+  loadSignupView(containerId, isLeader);
+}
+
+async function cancelSignup(evId, regId, containerId, isLeader) {
   if (!confirm('신청을 취소할까요?')) return;
   await db.from('registrations').delete().eq('id', regId);
-  memberPickEv(evId);
+  loadSignupView(containerId, isLeader);
 }
 
 // ── LEADER: 전시대 TAB ────────────────────────────────────
@@ -1602,123 +1628,8 @@ async function saveImage() {
 }
 
 // ── LEADER SIGNUP ─────────────────────────────────────────
-const LS = { selEv: null, selSlots: [], existReg: null };
-
 async function leaderSignupList() {
-  const el = document.getElementById('l-signup-content');
-  el.innerHTML = '<div class="loading">⏳ 불러오는 중...</div>';
-
-  const today = new Date().toISOString().split('T')[0];
-  const { data: evs } = await db.from('events')
-    .select('*').eq('is_active', true).gte('date', today).order('date');
-
-  if (!evs || evs.length === 0) {
-    el.innerHTML = `<div class="reg-status"><div class="reg-icon">📭</div><h3>예정된 전시대가 없습니다</h3></div>`;
-    return;
-  }
-
-  const { data: myRegs } = await db.from('registrations').select('*').eq('member_name', S.user.name).is('member_id', null);
-  const regMap = {};
-  (myRegs || []).forEach(r => { regMap[r.event_id] = r; });
-
-  el.innerHTML = `
-    <div class="sec-title">전시대를 선택하세요</div>
-    ${evs.map(ev => {
-      const reg = regMap[ev.id];
-      const locs = (ev.locations || []).join(', ');
-      return `
-        <div class="ev-banner ${reg ? 'selected' : ''}" onclick="leaderPickEv('${ev.id}')">
-          <h3>📅 ${fmtDate(ev.date)} ${ev.title ? '· ' + ev.title : ''}</h3>
-          <p>🕐 ${ev.start_time} ~ ${ev.end_time} &nbsp;|&nbsp; 📍 ${locs}</p>
-          ${reg
-            ? `<p style="margin-top:6px;font-size:12px;background:rgba(255,255,255,0.2);border-radius:6px;padding:4px 8px;display:inline-block">✅ 신청완료 · ${(reg.time_slots||[]).join(', ')}</p>`
-            : '<p style="margin-top:6px;font-size:12px;opacity:0.7">탭해서 신청하기 →</p>'}
-        </div>`;
-    }).join('')}`;
-}
-
-async function leaderPickEv(evId) {
-  const el = document.getElementById('l-signup-content');
-  el.innerHTML = '<div class="loading">⏳ 불러오는 중...</div>';
-
-  const { data: ev } = await db.from('events').select('*').eq('id', evId).maybeSingle();
-  LS.selEv = ev;
-
-  const { data: reg } = await db.from('registrations').select('*')
-    .eq('event_id', evId).eq('member_name', S.user.name).is('member_id', null).maybeSingle();
-  LS.existReg = reg;
-  LS.selSlots = reg ? [...(reg.time_slots || [])] : [];
-
-  const { data: allRegs } = await db.from('registrations').select('time_slots').eq('event_id', evId);
-  const slotCount = {};
-  (allRegs || []).forEach(r => { (r.time_slots||[]).forEach(s => { slotCount[s] = (slotCount[s]||0)+1; }); });
-
-  const hourSlots = getHourSlots(ev.start_time, ev.end_time);
-  const lbl = (ev.locations||[]).join(', ');
-
-  el.innerHTML = `
-    <button class="back-btn" onclick="leaderSignupList()">← 전시대 목록</button>
-    <div class="ev-banner" style="cursor:default;margin-bottom:14px">
-      <h3>📅 ${fmtDate(ev.date)} ${ev.title ? '· ' + ev.title : ''}</h3>
-      <p>🕐 ${ev.start_time} ~ ${ev.end_time} &nbsp;|&nbsp; 📍 ${lbl}</p>
-    </div>
-    <div class="sec-title">참여 가능한 시간을 선택하세요 (복수 선택 가능)</div>
-    <div id="l-slot-btns">
-      ${hourSlots.map(sl => {
-        const label = `${sl.start} ~ ${sl.end}`;
-        const cnt   = slotCount[label] || 0;
-        const isSel = LS.selSlots.includes(label);
-        return `<button class="time-slot-btn ${isSel ? 'selected' : ''}" onclick="leaderToggleSlot('${label}', this)">
-          ${label} <span class="slot-count">${cnt}명 신청</span>
-        </button>`;
-      }).join('')}
-    </div>
-    <div id="l-slot-err" class="err"></div>
-    <button class="btn btn-primary mt-12" onclick="leaderSubmitReg('${evId}')">
-      ${reg ? '신청 수정하기' : '신청하기'}
-    </button>
-    ${reg ? `<button class="btn btn-danger mt-8" onclick="leaderCancelReg('${evId}','${reg.id}')">신청 취소</button>` : ''}`;
-}
-
-function leaderToggleSlot(label, btn) {
-  const idx = LS.selSlots.indexOf(label);
-  if (idx >= 0) { LS.selSlots.splice(idx, 1); btn.classList.remove('selected'); }
-  else          { LS.selSlots.push(label);     btn.classList.add('selected'); }
-}
-
-async function leaderSubmitReg(evId) {
-  if (LS.selSlots.length === 0) {
-    document.getElementById('l-slot-err').textContent = '시간을 하나 이상 선택해주세요.';
-    return;
-  }
-  document.getElementById('l-slot-err').textContent = '';
-
-  if (LS.existReg) {
-    await db.from('registrations').update({ time_slots: LS.selSlots }).eq('id', LS.existReg.id);
-  } else {
-    await db.from('registrations').insert({
-      event_id: evId, member_id: null, member_name: S.user.name, time_slots: LS.selSlots
-    });
-  }
-
-  const el = document.getElementById('l-signup-content');
-  el.innerHTML = `
-    <div class="reg-status">
-      <div class="reg-icon">✅</div>
-      <h3>신청 완료!</h3>
-      <p>${S.user.name}님 신청이 완료되었습니다.</p>
-      <div class="reg-summary">
-        <div class="rs-name">📅 ${fmtDate(LS.selEv.date)} ${LS.selEv.title||''}</div>
-        <div class="rs-time">🕐 ${LS.selSlots.join(' / ')}</div>
-      </div>
-      <button class="btn btn-outline" onclick="leaderSignupList()">다른 전시대 신청하기</button>
-    </div>`;
-}
-
-async function leaderCancelReg(evId, regId) {
-  if (!confirm('신청을 취소할까요?')) return;
-  await db.from('registrations').delete().eq('id', regId);
-  leaderPickEv(evId);
+  loadSignupView('l-signup-content', true);
 }
 
 // ── UTILS ─────────────────────────────────────────────────
