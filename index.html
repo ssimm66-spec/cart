@@ -258,7 +258,27 @@ textarea { resize: vertical; min-height: 70px; }
 
   <!-- TAB: 전시대 운영 -->
   <div id="tab-jsd" class="tab-content">
-    <button class="btn btn-primary mb-12" onclick="openEvModal()">+ 새 전시대 운영 만들기</button>
+    <div class="card mb-12">
+      <div class="flex-between mb-8">
+        <div class="sec-title" style="margin:0">빠른 만들기</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <button class="btn btn-outline" onclick="openEvFromTemplate('jangnal-am')" style="font-size:13px;padding:10px 8px;text-align:left">
+          🗓️ 장날 오전<br><span style="font-size:11px;color:#888">매달 2·7일 · 09:15~12:00</span>
+        </button>
+        <button class="btn btn-outline" onclick="openEvFromTemplate('jangnal-pm')" style="font-size:13px;padding:10px 8px;text-align:left">
+          🗓️ 장날 오후<br><span style="font-size:11px;color:#888">매달 2·7일 · 12:00~16:00</span>
+        </button>
+        <button class="btn btn-outline" onclick="openEvFromTemplate('thu')" style="font-size:13px;padding:10px 8px;text-align:left">
+          🌙 목요일 저녁<br><span style="font-size:11px;color:#888">매주 목요일 · 15:15~20:15</span>
+        </button>
+        <button class="btn btn-outline" onclick="openEvFromTemplate('sat')" style="font-size:13px;padding:10px 8px;text-align:left">
+          🌅 토요일 오후<br><span id="sat-time-label" style="font-size:11px;color:#888">매주 토요일 · 18:15~20:15</span>
+          <span onclick="event.stopPropagation();openSatSettingsModal()" style="float:right;font-size:11px;color:#2c5f2e;text-decoration:underline">시간변경</span>
+        </button>
+      </div>
+      <button class="btn btn-secondary" onclick="openEvModal()" style="width:100%;font-size:13px">+ 비정기 전시대 직접 만들기</button>
+    </div>
     <div class="sec-title">예정된 전시대 운영</div>
     <div id="jsd-upcoming"></div>
     <div class="sec-title mt-16">지난 전시대</div>
@@ -457,6 +477,28 @@ textarea { resize: vertical; min-height: 70px; }
   </div>
 </div>
 
+<!-- 토요일 전시대 시간 설정 모달 -->
+<div id="sat-settings-modal" class="modal-bg">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>🌅 토요일 오후 시간 설정</h3>
+      <button class="modal-close" onclick="closeModal('sat-settings-modal')">✕</button>
+    </div>
+    <p style="font-size:13px;color:#666;margin-bottom:14px">하절기/동절기 시간 변경 시 여기서 수정하세요.</p>
+    <div class="row-2">
+      <div class="form-group">
+        <label>시작 시간</label>
+        <input type="time" id="sat-start-inp">
+      </div>
+      <div class="form-group">
+        <label>종료 시간</label>
+        <input type="time" id="sat-end-inp">
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="saveSatSettings()">저장</button>
+  </div>
+</div>
+
 <!-- 현장 참석자 직접 추가 모달 -->
 <div id="direct-add-modal" class="modal-bg">
   <div class="modal">
@@ -500,7 +542,7 @@ function gotoTab(name) {
   document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', tabs[i] === name));
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
-  if (name === 'jsd')     loadJsdTab();
+  if (name === 'jsd')     { loadJsdTab(); updateSatLabel(); }
   if (name === 'members') loadMembersTab();
   if (name === 'assign')  loadAssignEvSelect();
   if (name === 'output')  loadOutEvSelect();
@@ -1703,6 +1745,101 @@ async function removeMemberFromSlot(li, si, name) {
       .eq('event_id', S.selEv.id).eq('location_index', li).eq('slot_index', si);
   }
   renderSlots();
+}
+
+// ── 전시대 템플릿 ──────────────────────────────────────────
+function getSatTimes() {
+  return {
+    start: localStorage.getItem('sat_ev_start') || '18:15',
+    end:   localStorage.getItem('sat_ev_end')   || '20:15'
+  };
+}
+
+function updateSatLabel() {
+  const { start, end } = getSatTimes();
+  const el = document.getElementById('sat-time-label');
+  if (el) el.textContent = `매주 토요일 · ${start}~${end}`;
+}
+
+function openSatSettingsModal() {
+  const { start, end } = getSatTimes();
+  document.getElementById('sat-start-inp').value = start;
+  document.getElementById('sat-end-inp').value   = end;
+  openModal('sat-settings-modal');
+}
+
+function saveSatSettings() {
+  const start = document.getElementById('sat-start-inp').value;
+  const end   = document.getElementById('sat-end-inp').value;
+  if (!start || !end) { alert('시간을 입력해주세요.'); return; }
+  localStorage.setItem('sat_ev_start', start);
+  localStorage.setItem('sat_ev_end',   end);
+  closeModal('sat-settings-modal');
+  updateSatLabel();
+  alert('토요일 전시대 기본 시간이 변경됐습니다.');
+}
+
+function nextJangnal() {
+  const today = new Date();
+  const y = today.getFullYear(), m = today.getMonth(), d = today.getDate();
+  if (d < 2)  return new Date(y, m, 2);
+  if (d < 7)  return new Date(y, m, 7);
+  return new Date(m === 11 ? y + 1 : y, m === 11 ? 0 : m + 1, 2);
+}
+
+function nextWeekday(dow) {
+  const today = new Date();
+  let diff = dow - today.getDay();
+  if (diff <= 0) diff += 7;
+  const d = new Date(today);
+  d.setDate(today.getDate() + diff);
+  return d;
+}
+
+function toDateStr(d) { return d.toISOString().split('T')[0]; }
+
+function openEvFromTemplate(type) {
+  const baseFields = () => {
+    document.getElementById('ev-edit-id').value = '';
+    document.getElementById('ev-modal-title').textContent = '새 전시대 운영 만들기';
+    document.getElementById('ev-modal-btn').textContent = '전시대 운영 생성';
+    document.getElementById('ev-locs').value = '전시대 A';
+    document.getElementById('ev-interval').value = '15';
+    document.getElementById('ev-grp').value = '2';
+    document.getElementById('ev-repeat').checked = false;
+    document.getElementById('ev-repeat-count-wrap').style.display = 'none';
+  };
+
+  baseFields();
+
+  if (type === 'jangnal-am') {
+    document.getElementById('ev-date').value  = toDateStr(nextJangnal());
+    document.getElementById('ev-title').value = '장날 오전';
+    document.getElementById('ev-start').value = '09:15';
+    document.getElementById('ev-end').value   = '12:00';
+    document.getElementById('ev-repeat-group').style.display = 'none';
+  } else if (type === 'jangnal-pm') {
+    document.getElementById('ev-date').value  = toDateStr(nextJangnal());
+    document.getElementById('ev-title').value = '장날 오후';
+    document.getElementById('ev-start').value = '12:00';
+    document.getElementById('ev-end').value   = '16:00';
+    document.getElementById('ev-repeat-group').style.display = 'none';
+  } else if (type === 'thu') {
+    document.getElementById('ev-date').value  = toDateStr(nextWeekday(4));
+    document.getElementById('ev-title').value = '목요일 저녁';
+    document.getElementById('ev-start').value = '15:15';
+    document.getElementById('ev-end').value   = '20:15';
+    document.getElementById('ev-repeat-group').style.display = 'block';
+  } else if (type === 'sat') {
+    const { start, end } = getSatTimes();
+    document.getElementById('ev-date').value  = toDateStr(nextWeekday(6));
+    document.getElementById('ev-title').value = '토요일 오후';
+    document.getElementById('ev-start').value = start;
+    document.getElementById('ev-end').value   = end;
+    document.getElementById('ev-repeat-group').style.display = 'block';
+  }
+
+  openModal('ev-modal');
 }
 
 function toggleRepeat(cb) {
