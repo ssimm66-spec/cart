@@ -240,10 +240,13 @@ textarea { resize: vertical; min-height: 70px; }
 <div id="screen-leader" class="screen">
   <div class="header">
     <div>
-      <div class="header-sub">인도자</div>
+      <div class="header-sub" id="l-role-hdr">인도자</div>
       <h1 id="l-name-hdr"></h1>
     </div>
-    <button class="btn-logout" onclick="doLogout()">로그아웃</button>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn-logout" onclick="showChangePwModal()" style="font-size:12px;padding:6px 10px">🔑 비번변경</button>
+      <button class="btn-logout" onclick="doLogout()">로그아웃</button>
+    </div>
   </div>
   <div class="tabs">
     <div class="tab" onclick="gotoTab('jsd')">🏛️ 전시대</div>
@@ -276,8 +279,8 @@ textarea { resize: vertical; min-height: 70px; }
       </div>
       <div id="members-list"></div>
     </div>
-    <div class="card mt-12">
-      <div class="sec-title">인도자 관리</div>
+    <div class="card mt-12" id="admin-section" style="display:none">
+      <div class="sec-title">인도자 관리 <span style="font-size:11px;color:#e53935;font-weight:400">🔒 관리자 전용</span></div>
       <div class="row-2 mb-8">
         <input type="text" id="inp-new-leader" placeholder="이름">
         <input type="password" id="inp-new-lpw" placeholder="비밀번호">
@@ -409,6 +412,51 @@ textarea { resize: vertical; min-height: 70px; }
   </div>
 </div>
 
+<!-- 비밀번호 변경 모달 (본인) -->
+<div id="change-pw-modal" class="modal-bg">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>비밀번호 변경</h3>
+      <button class="modal-close" onclick="closeModal('change-pw-modal')">✕</button>
+    </div>
+    <div class="form-group">
+      <label>현재 비밀번호</label>
+      <input type="password" id="cpw-current" placeholder="현재 비밀번호">
+    </div>
+    <div class="form-group">
+      <label>새 비밀번호</label>
+      <input type="password" id="cpw-new" placeholder="새 비밀번호">
+    </div>
+    <div class="form-group">
+      <label>새 비밀번호 확인</label>
+      <input type="password" id="cpw-confirm" placeholder="다시 입력">
+    </div>
+    <div id="cpw-err" class="err"></div>
+    <button class="btn btn-primary" onclick="doChangePw()">변경하기</button>
+  </div>
+</div>
+
+<!-- 비밀번호 초기화 모달 (관리자용) -->
+<div id="reset-pw-modal" class="modal-bg">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>비밀번호 초기화</h3>
+      <button class="modal-close" onclick="closeModal('reset-pw-modal')">✕</button>
+    </div>
+    <p id="reset-pw-desc" style="font-size:14px;color:#555;margin-bottom:14px"></p>
+    <div class="form-group">
+      <label>새 비밀번호</label>
+      <input type="password" id="rpw-new" placeholder="새 비밀번호 설정">
+    </div>
+    <div class="form-group">
+      <label>새 비밀번호 확인</label>
+      <input type="password" id="rpw-confirm" placeholder="다시 입력">
+    </div>
+    <div id="rpw-err" class="err"></div>
+    <button class="btn btn-primary" onclick="doResetPw()">초기화하기</button>
+  </div>
+</div>
+
 <!-- 현장 참석자 직접 추가 모달 -->
 <div id="direct-add-modal" class="modal-bg">
   <div class="modal">
@@ -507,8 +555,10 @@ async function doLogin() {
   } else {
     if (!pw) { errEl.textContent = '비밀번호를 입력해주세요.'; return; }
     if (loginLeader.password !== pw) { errEl.textContent = '비밀번호가 틀렸습니다.'; return; }
-    S.user = { type: 'leader', id: loginLeader.id, name: loginLeader.name };
+    S.user = { type: 'leader', id: loginLeader.id, name: loginLeader.name, isAdmin: !!loginLeader.is_admin };
     document.getElementById('l-name-hdr').textContent = loginLeader.name;
+    document.getElementById('l-role-hdr').textContent = loginLeader.is_admin ? '관리자' : '인도자';
+    document.getElementById('admin-section').style.display = loginLeader.is_admin ? 'block' : 'none';
     showScreen('leader');
     gotoTab('assign');
   }
@@ -810,8 +860,11 @@ async function loadMembersTab() {
   const { data: leaders } = await db.from('leaders').select('*').order('name');
   document.getElementById('leaders-list').innerHTML = leaders?.map(l => `
     <div class="m-item">
-      <span style="font-size:14px">👑 ${l.name}</span>
-      <button class="btn btn-danger btn-sm" onclick="deleteLeader('${l.id}')" ${l.id===S.user.id?'disabled':''}>삭제</button>
+      <span style="font-size:14px">${l.is_admin ? '🔐' : '👑'} ${l.name}${l.is_admin ? ' <span style="font-size:11px;color:#e53935">관리자</span>' : ''}</span>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-outline btn-sm" onclick="showResetPwModal('${l.id}','${l.name.replace(/'/g,"\\'")}')">비번초기화</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteLeader('${l.id}')" ${l.id===S.user.id?'disabled':''}>삭제</button>
+      </div>
     </div>`).join('') || '';
 }
 
@@ -838,6 +891,55 @@ async function deleteMember(id) {
   await db.from('members').delete().eq('id', id);
   loadMembersTab();
 }
+function showChangePwModal() {
+  document.getElementById('cpw-current').value = '';
+  document.getElementById('cpw-new').value = '';
+  document.getElementById('cpw-confirm').value = '';
+  document.getElementById('cpw-err').textContent = '';
+  openModal('change-pw-modal');
+}
+
+async function doChangePw() {
+  const current = document.getElementById('cpw-current').value;
+  const nw      = document.getElementById('cpw-new').value;
+  const confirm = document.getElementById('cpw-confirm').value;
+  const errEl   = document.getElementById('cpw-err');
+  errEl.textContent = '';
+  if (!current || !nw || !confirm) { errEl.textContent = '모두 입력해주세요.'; return; }
+  if (nw !== confirm) { errEl.textContent = '새 비밀번호가 일치하지 않아요.'; return; }
+  if (nw.length < 4)  { errEl.textContent = '비밀번호는 4자 이상으로 해주세요.'; return; }
+  const { data: me } = await db.from('leaders').select('password').eq('id', S.user.id).maybeSingle();
+  if (!me || me.password !== current) { errEl.textContent = '현재 비밀번호가 틀렸습니다.'; return; }
+  const { error } = await db.from('leaders').update({ password: nw }).eq('id', S.user.id);
+  if (error) { errEl.textContent = '오류: ' + error.message; return; }
+  closeModal('change-pw-modal');
+  alert('비밀번호가 변경됐습니다!');
+}
+
+let _resetPwTargetId = null;
+function showResetPwModal(id, name) {
+  _resetPwTargetId = id;
+  document.getElementById('reset-pw-desc').textContent = `${name}님의 비밀번호를 새로 설정합니다.`;
+  document.getElementById('rpw-new').value = '';
+  document.getElementById('rpw-confirm').value = '';
+  document.getElementById('rpw-err').textContent = '';
+  openModal('reset-pw-modal');
+}
+
+async function doResetPw() {
+  const nw      = document.getElementById('rpw-new').value;
+  const confirm = document.getElementById('rpw-confirm').value;
+  const errEl   = document.getElementById('rpw-err');
+  errEl.textContent = '';
+  if (!nw || !confirm) { errEl.textContent = '모두 입력해주세요.'; return; }
+  if (nw !== confirm)  { errEl.textContent = '비밀번호가 일치하지 않아요.'; return; }
+  if (nw.length < 4)   { errEl.textContent = '비밀번호는 4자 이상으로 해주세요.'; return; }
+  const { error } = await db.from('leaders').update({ password: nw }).eq('id', _resetPwTargetId);
+  if (error) { errEl.textContent = '오류: ' + error.message; return; }
+  closeModal('reset-pw-modal');
+  alert('비밀번호가 초기화됐습니다.');
+}
+
 async function addLeader() {
   const name = document.getElementById('inp-new-leader').value.trim();
   const pw   = document.getElementById('inp-new-lpw').value.trim();
