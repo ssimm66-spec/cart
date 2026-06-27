@@ -1303,7 +1303,7 @@ function renderSlots() {
           <div class="slot-row">
             <div class="slot-time">${sl.start}<br><span style="color:#ccc">│</span><br>${sl.end}</div>
             <div class="slot-cell ${mems.length?'has-members':''}">
-              ${mems.map(m => `<div class="m-name"><span>${m}</span></div>`).join('')}
+              ${mems.map(m => `<div class="m-name"><span>${m}</span><span class="x" onclick="removeMemberFromSlot(${li},${si},'${m.replace(/'/g,"\\'")}')">✕</span></div>`).join('')}
               ${!mems.length ? '<span class="slot-hint">미배정</span>' : ''}
             </div>
           </div>`;
@@ -1526,6 +1526,20 @@ function fmtDate(d) {
 
 function getDow(d) {
   return ['일','월','화','수','목','금','토'][new Date(d).getDay()]+'요일';
+}
+
+async function removeMemberFromSlot(li, si, name) {
+  const key = `${li}_${si}`;
+  const mems = (S.assigns[key] || []).filter(m => m !== name);
+  S.assigns[key] = mems;
+  if (mems.length === 0) {
+    await db.from('assignments').delete()
+      .eq('event_id', S.selEv.id).eq('location_index', li).eq('slot_index', si);
+  } else {
+    await db.from('assignments').update({ member_names: mems })
+      .eq('event_id', S.selEv.id).eq('location_index', li).eq('slot_index', si);
+  }
+  renderSlots();
 }
 
 function toggleRepeat(cb) {
