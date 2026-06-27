@@ -957,13 +957,19 @@ function renderPairs() {
     el.innerHTML = '<p class="text-muted" style="font-size:13px">짝이 없어요. 위에서 이름을 선택하고 짝 만들기를 눌러주세요.</p>';
     return;
   }
-  el.innerHTML = S_pairs.map((p, i) => `
+
+  const locs = S.selEv ? (S.selEv.locations || []) : [];
+  const n = S_pairs.length;
+  const pairsPerLoc = locs.length > 1 ? Math.ceil(n / locs.length) : n;
+
+  function pairCard(p, globalIdx, localNum) {
+    const i = globalIdx;
+    return `
     <div class="pair-card" id="pair-card-${i}"
       ondragover="pairCardDragOver(event,${i})"
       ondragleave="pairCardDragLeave(${i})"
       ondrop="memberDropOnPair(event,${i})"
       style="display:flex;align-items:center;background:#f8f9fa;border-radius:8px;padding:10px 12px;margin-bottom:6px;border:1.5px solid #e0e0e0;gap:6px;">
-      <!-- 순서 변경 핸들 -->
       <span draggable="true"
         ondragstart="pairDragStart(event,${i})"
         ondragover="event.stopPropagation();event.preventDefault()"
@@ -971,8 +977,7 @@ function renderPairs() {
         ondragend="pairDragEnd()"
         style="color:#bbb;font-size:18px;cursor:grab;padding:0 4px;flex-shrink:0"
         title="드래그해서 순서 변경">☰</span>
-      <span style="font-size:12px;color:#999;flex-shrink:0">${i+1}.</span>
-      <!-- 멤버 칩들 (드래그로 다른 짝으로 이동) -->
+      <span style="font-size:12px;color:#999;flex-shrink:0">${localNum}.</span>
       <div style="display:flex;flex-wrap:wrap;flex:1;gap:2px">
         ${p.names.map(name => `
           <span class="pair-member" draggable="true"
@@ -982,15 +987,32 @@ function renderPairs() {
           </span>`).join('')}
       </div>
       <button onclick="removePair(${i})" style="background:none;border:none;color:#e53935;font-size:18px;cursor:pointer;padding:0 4px;flex-shrink:0">✕</button>
-    </div>`).join('')
-  + `<!-- 짝 없이 풀로 돌려보내기 영역 -->
-    <div id="pair-unassign-zone"
-      ondragover="pairCardDragOver(event,-1)"
-      ondragleave="pairCardDragLeave(-1)"
-      ondrop="memberDropOnPair(event,-1)"
-      style="border:2px dashed #ddd;border-radius:8px;padding:10px;text-align:center;color:#bbb;font-size:12px;margin-top:4px">
-      여기에 놓으면 짝 해제
     </div>`;
+  }
+
+  let html = '';
+  if (locs.length > 1) {
+    locs.forEach((loc, li) => {
+      const start = li * pairsPerLoc;
+      const end = Math.min(start + pairsPerLoc, n);
+      if (start >= n) return;
+      html += `<div style="font-size:12px;font-weight:700;color:#2c5f2e;margin:10px 0 4px;padding-left:4px">📍 ${loc}</div>`;
+      for (let i = start; i < end; i++) {
+        html += pairCard(S_pairs[i], i, i - start + 1);
+      }
+    });
+  } else {
+    S_pairs.forEach((p, i) => { html += pairCard(p, i, i + 1); });
+  }
+
+  html += `<div id="pair-unassign-zone"
+    ondragover="pairCardDragOver(event,-1)"
+    ondragleave="pairCardDragLeave(-1)"
+    ondrop="memberDropOnPair(event,-1)"
+    style="border:2px dashed #ddd;border-radius:8px;padding:10px;text-align:center;color:#bbb;font-size:12px;margin-top:4px">
+    여기에 놓으면 짝 해제
+  </div>`;
+  el.innerHTML = html;
 }
 
 // ── 짝 순서 드래그 ──
@@ -1273,23 +1295,32 @@ function renderSlots() {
   const ev    = S.selEv;
   const slots = getSlots(ev.start_time, ev.end_time, ev.interval_minutes);
   const locs  = ev.locations || [];
+  const n     = S_pairs.length;
+  const pairsPerLoc = locs.length > 1 && n > 0 ? Math.ceil(n / locs.length) : 0;
 
-  document.getElementById('slots-wrap').innerHTML = locs.map((loc, li) => `
+  document.getElementById('slots-wrap').innerHTML = locs.map((loc, li) => {
+    const locPairCount = pairsPerLoc > 0 ? Math.min(pairsPerLoc, n - li * pairsPerLoc) : 0;
+    return `
     <div class="card">
       <div class="loc-title">📍 ${loc}</div>
       ${slots.map((sl, si) => {
         const key  = `${li}_${si}`;
         const mems = S.assigns[key] || [];
+        const pairNum = locPairCount > 0 ? (si % locPairCount) + 1 : si + 1;
         return `
           <div class="slot-row">
-            <div class="slot-time">${sl.start}<br><span style="color:#ccc">│</span><br>${sl.end}</div>
+            <div class="slot-time" style="min-width:52px">
+              ${sl.start}<br><span style="color:#ccc">│</span><br>${sl.end}
+              ${locs.length > 1 ? `<br><span style="color:#2c5f2e;font-size:10px;font-weight:700">${pairNum}번짝</span>` : ''}
+            </div>
             <div class="slot-cell ${mems.length?'has-members':''}">
               ${mems.map(m => `<div class="m-name"><span>${m}</span><span class="x" onclick="removeMemberFromSlot(${li},${si},'${m.replace(/'/g,"\\'")}')">✕</span></div>`).join('')}
               ${!mems.length ? '<span class="slot-hint">미배정</span>' : ''}
             </div>
           </div>`;
       }).join('')}
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 // ── LEADER: OUTPUT TAB ────────────────────────────────────
