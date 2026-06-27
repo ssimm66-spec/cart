@@ -306,10 +306,7 @@ textarea { resize: vertical; min-height: 70px; }
         <p class="text-muted mb-8" style="font-size:11px">이름 탭 → 선택 → 짝 만들기 버튼</p>
         <div id="reg-pool" class="chip-pool"></div>
         <button class="btn btn-outline mt-8" id="make-pair-btn" onclick="makePair()" style="opacity:0.4" disabled>짝 만들기 (선택 없음)</button>
-        <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
-          <input type="text" id="direct-add-name" placeholder="현장 참석자 이름" onkeydown="if(event.key==='Enter')addDirectAttendee()" style="flex:1;font-size:14px;padding:9px 12px;border:1.5px solid #e0e0e0;border-radius:10px;outline:none;font-family:inherit">
-          <button class="btn btn-outline btn-sm" onclick="addDirectAttendee()">직접 추가</button>
-        </div>
+        <button class="btn btn-outline btn-sm mt-8" onclick="showDirectAddModal()" style="width:100%">+ 현장 참석자 추가</button>
         <p style="color:#aaa;font-size:11px;margin-top:4px">신청하지 않았지만 참석하겠다고 한 분을 추가하세요</p>
       </div>
 
@@ -395,6 +392,19 @@ textarea { resize: vertical; min-height: 70px; }
     </div>
     <input type="hidden" id="ev-edit-id">
     <button class="btn btn-primary" id="ev-modal-btn" onclick="saveEv()">전시대 운영 생성</button>
+  </div>
+</div>
+
+<!-- 현장 참석자 직접 추가 모달 -->
+<div id="direct-add-modal" class="modal-bg">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>현장 참석자 추가</h3>
+      <button class="modal-close" onclick="closeModal('direct-add-modal')">✕</button>
+    </div>
+    <p style="font-size:13px;color:#666;margin-bottom:12px">신청하지 않은 분 중 참석하는 분을 선택하세요</p>
+    <input type="text" id="direct-add-search" placeholder="이름 검색" oninput="renderDirectAddList()" style="width:100%;box-sizing:border-box;font-size:14px;padding:9px 12px;border:1.5px solid #e0e0e0;border-radius:10px;outline:none;font-family:inherit;margin-bottom:10px">
+    <div id="direct-add-list" style="max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:6px"></div>
   </div>
 </div>
 
@@ -1546,26 +1556,48 @@ function toggleRepeat(cb) {
   document.getElementById('ev-repeat-count-wrap').style.display = cb.checked ? 'block' : 'none';
 }
 
-async function addDirectAttendee() {
-  const nameInput = document.getElementById('direct-add-name');
-  const name = nameInput.value.trim();
-  if (!name) return;
+function showDirectAddModal() {
   if (!S.selEv) return;
-  const member = (S._membersMeta || []).find(m => m.name === name);
-  if (!member) { alert(`"${name}"님은 명단에 없습니다. 먼저 명단 탭에서 추가해주세요.`); return; }
-  if (S.regs.some(r => r.member_name === name)) {
-    alert(`${name}님은 이미 신청자 목록에 있습니다.`); return;
+  document.getElementById('direct-add-search').value = '';
+  renderDirectAddList();
+  openModal('direct-add-modal');
+}
+
+function renderDirectAddList() {
+  const search = document.getElementById('direct-add-search').value.trim().toLowerCase();
+  const registeredIds = new Set(S.regs.map(r => r.member_id).filter(Boolean));
+  const registeredNames = new Set(S.regs.map(r => r.member_name));
+  const available = (S._membersMeta || []).filter(m => {
+    if (registeredIds.has(m.id) || registeredNames.has(m.name)) return false;
+    if (search && !m.name.toLowerCase().includes(search)) return false;
+    return true;
+  });
+  const el = document.getElementById('direct-add-list');
+  if (!available.length) {
+    el.innerHTML = '<p style="color:#aaa;font-size:13px;text-align:center;padding:20px 0">추가할 수 있는 분이 없습니다</p>';
+    return;
   }
+  el.innerHTML = available.map(m =>
+    `<div onclick="addDirectAttendee('${m.id}','${m.name.replace(/'/g,"\\'")}',this)"
+      style="padding:12px 14px;border-radius:10px;border:1.5px solid #e0e0e0;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:space-between"
+      onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background=''">
+      <span>${m.name}</span><span style="color:#2c5f2e;font-size:12px">+ 추가</span>
+    </div>`
+  ).join('');
+}
+
+async function addDirectAttendee(memberId, name) {
+  if (!S.selEv) return;
   const ev = S.selEv;
   const allSlots = getHourSlots(ev.start_time, ev.end_time).map(s => `${s.start} ~ ${s.end}`);
   const { data, error } = await db.from('registrations').insert({
-    event_id: ev.id, member_id: member.id, member_name: name, time_slots: allSlots
+    event_id: ev.id, member_id: memberId, member_name: name, time_slots: allSlots
   }).select().maybeSingle();
   if (error) { alert('추가 실패: ' + error.message); return; }
-  S.regs.push({ id: data.id, event_id: ev.id, member_id: null, member_name: name, time_slots: allSlots });
+  S.regs.push({ id: data.id, event_id: ev.id, member_id: memberId, member_name: name, time_slots: allSlots });
   document.getElementById('reg-cnt').textContent = `(${S.regs.length}명)`;
-  nameInput.value = '';
   renderPool();
+  renderDirectAddList();
 }
 
 
