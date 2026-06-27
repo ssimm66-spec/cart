@@ -259,25 +259,21 @@ textarea { resize: vertical; min-height: 70px; }
   <!-- TAB: 전시대 운영 -->
   <div id="tab-jsd" class="tab-content">
     <div class="card mb-12">
-      <div class="flex-between mb-8">
-        <div class="sec-title" style="margin:0">빠른 만들기</div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-        <button class="btn btn-outline" onclick="openEvFromTemplate('jangnal-am')" style="font-size:13px;padding:10px 8px;text-align:left">
-          🗓️ 장날 오전<br><span style="font-size:11px;color:#888">매달 2·7일 · 09:15~12:00</span>
+      <div class="sec-title" style="margin:0 0 10px">전시대 만들기</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn btn-outline" onclick="openJangnalModal()" style="font-size:13px;padding:11px 14px;text-align:left">
+          🗓️ 장날 전시대 일괄 생성 <span style="font-size:11px;color:#888;float:right">오전+오후 · 2일·7일</span>
         </button>
-        <button class="btn btn-outline" onclick="openEvFromTemplate('jangnal-pm')" style="font-size:13px;padding:10px 8px;text-align:left">
-          🗓️ 장날 오후<br><span style="font-size:11px;color:#888">매달 2·7일 · 12:00~16:00</span>
+        <button class="btn btn-outline" onclick="openEvFromTemplate('thu')" style="font-size:13px;padding:11px 14px;text-align:left">
+          🌙 목요일 저녁 전시대 <span style="font-size:11px;color:#888;float:right">매주 15:15~20:15</span>
         </button>
-        <button class="btn btn-outline" onclick="openEvFromTemplate('thu')" style="font-size:13px;padding:10px 8px;text-align:left">
-          🌙 목요일 저녁<br><span style="font-size:11px;color:#888">매주 목요일 · 15:15~20:15</span>
+        <button class="btn btn-outline" onclick="openEvFromTemplate('sat')" style="font-size:13px;padding:11px 14px;text-align:left">
+          🌅 토요일 오후 전시대 <span id="sat-time-label" style="font-size:11px;color:#888;float:right">매주 18:15~20:15</span>
         </button>
-        <button class="btn btn-outline" onclick="openEvFromTemplate('sat')" style="font-size:13px;padding:10px 8px;text-align:left">
-          🌅 토요일 오후<br><span id="sat-time-label" style="font-size:11px;color:#888">매주 토요일 · 18:15~20:15</span>
-          <span onclick="event.stopPropagation();openSatSettingsModal()" style="float:right;font-size:11px;color:#2c5f2e;text-decoration:underline">시간변경</span>
+        <button class="btn btn-secondary" onclick="openEvModal()" style="font-size:13px;padding:11px 14px;text-align:left">
+          + 비정기 전시대 직접 만들기
         </button>
       </div>
-      <button class="btn btn-secondary" onclick="openEvModal()" style="width:100%;font-size:13px">+ 비정기 전시대 직접 만들기</button>
     </div>
     <div class="sec-title">예정된 전시대 운영</div>
     <div id="jsd-upcoming"></div>
@@ -474,6 +470,32 @@ textarea { resize: vertical; min-height: 70px; }
     </div>
     <div id="rpw-err" class="err"></div>
     <button class="btn btn-primary" onclick="doResetPw()">초기화하기</button>
+  </div>
+</div>
+
+<!-- 장날 전시대 일괄 생성 모달 -->
+<div id="jangnal-modal" class="modal-bg">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>🗓️ 장날 전시대 일괄 생성</h3>
+      <button class="modal-close" onclick="closeModal('jangnal-modal')">✕</button>
+    </div>
+    <p style="font-size:13px;color:#666;margin-bottom:14px">매달 2일·7일 오전(09:15~12:00) + 오후(12:00~16:00)를 한꺼번에 만듭니다. 이미 있는 날짜는 건너뜁니다.</p>
+    <div class="form-group">
+      <label>장소</label>
+      <input type="text" id="jn-locs" placeholder="전시대 A" value="전시대 A">
+    </div>
+    <div class="form-group">
+      <label>몇 개월치 생성?</label>
+      <div style="display:flex;gap:8px">
+        <button id="jn-m-3"  onclick="setJnMonths(3)"  class="btn btn-outline btn-sm" style="flex:1">3개월</button>
+        <button id="jn-m-6"  onclick="setJnMonths(6)"  class="btn btn-primary btn-sm" style="flex:1">6개월</button>
+        <button id="jn-m-12" onclick="setJnMonths(12)" class="btn btn-outline btn-sm" style="flex:1">12개월</button>
+      </div>
+    </div>
+    <div id="jn-preview" style="font-size:12px;color:#666;background:#f8f9fa;border-radius:8px;padding:10px;margin-bottom:14px;max-height:120px;overflow-y:auto"></div>
+    <div id="jn-err" class="err"></div>
+    <button class="btn btn-primary" onclick="createJangnalBulk()">일괄 생성</button>
   </div>
 </div>
 
@@ -1798,6 +1820,69 @@ function nextWeekday(dow) {
 
 function toDateStr(d) { return d.toISOString().split('T')[0]; }
 
+let _jnMonths = 6;
+function openJangnalModal() {
+  _jnMonths = 6;
+  document.getElementById('jn-locs').value = '전시대 A';
+  document.getElementById('jn-err').textContent = '';
+  updateJnPreview();
+  openModal('jangnal-modal');
+}
+function setJnMonths(n) {
+  _jnMonths = n;
+  [3, 6, 12].forEach(v => {
+    const b = document.getElementById(`jn-m-${v}`);
+    b.className = v === n ? 'btn btn-primary btn-sm' : 'btn btn-outline btn-sm';
+    b.style.flex = '1';
+  });
+  updateJnPreview();
+}
+function getJangnalDates(months) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const dates = [];
+  for (let m = 0; m < months; m++) {
+    const base = new Date(today.getFullYear(), today.getMonth() + m, 1);
+    [2, 7].forEach(day => {
+      const d = new Date(base.getFullYear(), base.getMonth(), day);
+      if (d >= today) dates.push(toDateStr(d));
+    });
+  }
+  return dates;
+}
+function updateJnPreview() {
+  const dates = getJangnalDates(_jnMonths);
+  document.getElementById('jn-preview').innerHTML =
+    `총 <b>${dates.length}일 × 2세션 = ${dates.length*2}개</b> 생성 예정<br>` +
+    dates.map(d => `· ${d} 오전/오후`).join('<br>');
+}
+async function createJangnalBulk() {
+  const loc = document.getElementById('jn-locs').value.trim() || '전시대 A';
+  const errEl = document.getElementById('jn-err');
+  errEl.textContent = '';
+  const dates = getJangnalDates(_jnMonths);
+  if (!dates.length) { errEl.textContent = '생성할 날짜가 없습니다.'; return; }
+
+  // 기존 장날 이벤트 날짜 조회해서 중복 제거
+  const { data: existing } = await db.from('events')
+    .select('date,title').in('date', dates).like('title', '장날%');
+  const existSet = new Set((existing||[]).map(e => `${e.date}_${e.title}`));
+
+  const rows = [];
+  dates.forEach(date => {
+    if (!existSet.has(`${date}_장날 오전`))
+      rows.push({ date, title:'장날 오전', locations:[loc], start_time:'09:15', end_time:'12:00', interval_minutes:15, group_size:2, is_active:true });
+    if (!existSet.has(`${date}_장날 오후`))
+      rows.push({ date, title:'장날 오후', locations:[loc], start_time:'12:00', end_time:'16:00', interval_minutes:15, group_size:2, is_active:true });
+  });
+
+  if (!rows.length) { errEl.textContent = '선택한 기간의 장날 전시대가 이미 모두 있습니다.'; return; }
+  const { error } = await db.from('events').insert(rows);
+  if (error) { errEl.textContent = '오류: ' + error.message; return; }
+  closeModal('jangnal-modal');
+  alert(`✅ ${rows.length}개 생성 완료!\n(이미 있던 ${dates.length*2 - rows.length}개는 건너뜀)`);
+  loadJsdTab();
+}
+
 function openEvFromTemplate(type) {
   const baseFields = () => {
     document.getElementById('ev-edit-id').value = '';
@@ -1812,24 +1897,15 @@ function openEvFromTemplate(type) {
 
   baseFields();
 
-  if (type === 'jangnal-am') {
-    document.getElementById('ev-date').value  = toDateStr(nextJangnal());
-    document.getElementById('ev-title').value = '장날 오전';
-    document.getElementById('ev-start').value = '09:15';
-    document.getElementById('ev-end').value   = '12:00';
-    document.getElementById('ev-repeat-group').style.display = 'none';
-  } else if (type === 'jangnal-pm') {
-    document.getElementById('ev-date').value  = toDateStr(nextJangnal());
-    document.getElementById('ev-title').value = '장날 오후';
-    document.getElementById('ev-start').value = '12:00';
-    document.getElementById('ev-end').value   = '16:00';
-    document.getElementById('ev-repeat-group').style.display = 'none';
-  } else if (type === 'thu') {
+  if (type === 'thu') {
     document.getElementById('ev-date').value  = toDateStr(nextWeekday(4));
     document.getElementById('ev-title').value = '목요일 저녁';
     document.getElementById('ev-start').value = '15:15';
     document.getElementById('ev-end').value   = '20:15';
     document.getElementById('ev-repeat-group').style.display = 'block';
+    document.getElementById('ev-repeat').checked = true;
+    document.getElementById('ev-repeat-count-wrap').style.display = 'block';
+    document.getElementById('ev-repeat-count').value = 12;
   } else if (type === 'sat') {
     const { start, end } = getSatTimes();
     document.getElementById('ev-date').value  = toDateStr(nextWeekday(6));
@@ -1837,6 +1913,9 @@ function openEvFromTemplate(type) {
     document.getElementById('ev-start').value = start;
     document.getElementById('ev-end').value   = end;
     document.getElementById('ev-repeat-group').style.display = 'block';
+    document.getElementById('ev-repeat').checked = true;
+    document.getElementById('ev-repeat-count-wrap').style.display = 'block';
+    document.getElementById('ev-repeat-count').value = 12;
   }
 
   openModal('ev-modal');
