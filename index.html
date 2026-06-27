@@ -1172,7 +1172,14 @@ function tapForPair(name) {
 
 function makePair() {
   if (S_selPair.size === 0) return;
-  S_pairs.push({ names: [...S_selPair] });
+  const isJangnal = S.selEv && S.selEv.title === '장날 전시대';
+  let ampm = null;
+  if (isJangnal) {
+    const firstName = [...S_selPair][0];
+    const reg = S.regs.find(r => r.member_name === firstName);
+    if (reg) ampm = (reg.time_slots||[]).some(s => s.includes('09:15')) ? 'am' : 'pm';
+  }
+  S_pairs.push({ names: [...S_selPair], ...(ampm ? {ampm} : {}) });
   S_selPair.clear();
   savePairsLocal();
   renderPool();
@@ -1188,7 +1195,7 @@ function renderPairs() {
 
   const locs = S.selEv ? (S.selEv.locations || []) : [];
   const n = S_pairs.length;
-  const pairsPerLoc = locs.length > 1 ? Math.ceil(n / locs.length) : n;
+  const isJangnal = S.selEv && S.selEv.title === '장날 전시대';
 
   function pairCard(p, globalIdx, localNum) {
     const i = globalIdx;
@@ -1219,15 +1226,30 @@ function renderPairs() {
   }
 
   let html = '';
-  if (locs.length > 1) {
+  if (isJangnal) {
+    // 장날: group by 오전/오후
+    const amEntries = S_pairs.map((p, i) => ({p, i})).filter(e => e.p.ampm === 'am');
+    const pmEntries = S_pairs.map((p, i) => ({p, i})).filter(e => e.p.ampm === 'pm');
+    const otherEntries = S_pairs.map((p, i) => ({p, i})).filter(e => !e.p.ampm);
+    if (amEntries.length) {
+      html += `<div style="font-size:12px;font-weight:700;color:#e65100;margin:8px 0 4px;padding-left:4px">오전 09:15~12:00</div>`;
+      amEntries.forEach(({p, i}, li) => { html += pairCard(p, i, li + 1); });
+    }
+    if (pmEntries.length) {
+      html += `<div style="font-size:12px;font-weight:700;color:#1565c0;margin:10px 0 4px;padding-left:4px">오후 12:00~16:00</div>`;
+      pmEntries.forEach(({p, i}, li) => { html += pairCard(p, i, li + 1); });
+    }
+    if (otherEntries.length) {
+      html += `<div style="font-size:12px;font-weight:700;color:#888;margin:10px 0 4px;padding-left:4px">미분류</div>`;
+      otherEntries.forEach(({p, i}, li) => { html += pairCard(p, i, li + 1); });
+    }
+  } else if (locs.length > 1) {
+    // Round-robin: pair i → location (i % locs.length), gender-balanced
     locs.forEach((loc, li) => {
-      const start = li * pairsPerLoc;
-      const end = Math.min(start + pairsPerLoc, n);
-      if (start >= n) return;
+      const locEntries = S_pairs.map((p, i) => ({p, i})).filter(({i}) => i % locs.length === li);
+      if (!locEntries.length) return;
       html += `<div style="font-size:12px;font-weight:700;color:#2c5f2e;margin:10px 0 4px;padding-left:4px">📍 ${loc}</div>`;
-      for (let i = start; i < end; i++) {
-        html += pairCard(S_pairs[i], i, i - start + 1);
-      }
+      locEntries.forEach(({p, i}, localIdx) => { html += pairCard(p, i, localIdx + 1); });
     });
   } else {
     S_pairs.forEach((p, i) => { html += pairCard(p, i, i + 1); });
@@ -1354,24 +1376,36 @@ function autoMakePairs() {
   (S._membersMeta || []).forEach(m => { genderMap[m.name] = m.gender || '형제'; });
 
   const inPair = new Set(S_pairs.flatMap(p => p.names));
-  const available = S.regs.map(r => r.member_name).filter(n => !inPair.has(n));
+  const isJangnal = S.selEv && S.selEv.title === '장날 전시대';
 
-  const brothers = available.filter(n => genderMap[n] !== '자매');
-  const sisters  = available.filter(n => genderMap[n] === '자매');
+  // Build pairs from a name list, separated by gender, with optional ampm tag
+  const buildPairs = (list, ampm) => {
+    const bros = list.filter(n => genderMap[n] !== '자매');
+    const siss = list.filter(n => genderMap[n] === '자매');
+    const result = [];
+    const fromNames = (names) => {
+      const before = result.length;
+      for (let i = 0; i < names.length; i += _grpSize)
+        result.push({ names: names.slice(i, i + _grpSize), ...(ampm ? {ampm} : {}) });
+      if (result.length - before >= 2 && result[result.length - 1].names.length === 1) {
+        const lone = result.pop().names[0];
+        result[result.length - 1].names.push(lone);
+      }
+    };
+    fromNames(bros);
+    fromNames(siss);
+    return result;
+  };
 
   S_pairs = [];
-  const makePairsFrom = (list) => {
-    for (let i = 0; i < list.length; i += _grpSize) {
-      S_pairs.push({ names: list.slice(i, i + _grpSize) });
-    }
-    // 1명만 남으면 앞 짝에 합치기
-    if (S_pairs.length >= 2 && S_pairs[S_pairs.length - 1].names.length === 1) {
-      const lone = S_pairs.pop().names[0];
-      S_pairs[S_pairs.length - 1].names.push(lone);
-    }
-  };
-  makePairsFrom(brothers);
-  makePairsFrom(sisters);
+  if (isJangnal) {
+    const amNames = S.regs.filter(r => (r.time_slots||[]).some(s => s.includes('09:15')) && !inPair.has(r.member_name)).map(r => r.member_name);
+    const pmNames = S.regs.filter(r => (r.time_slots||[]).some(s => s.includes('12:00')) && !inPair.has(r.member_name)).map(r => r.member_name);
+    S_pairs = [...buildPairs(amNames, 'am'), ...buildPairs(pmNames, 'pm')];
+  } else {
+    const available = S.regs.map(r => r.member_name).filter(n => !inPair.has(n));
+    S_pairs = buildPairs(available, null);
+  }
 
   S_selPair.clear();
   savePairsLocal();
@@ -1400,15 +1434,14 @@ async function doAssignWithInterval(autoInterval) {
   await db.from('assignments').delete().eq('event_id', ev.id);
   S.assigns = {};
   const rows = [];
-  // Each pair is fixed to ONE location; pairs are split evenly across locations
-  const pairsPerLoc = Math.ceil(n / locs.length);
+  // Round-robin: pair pi → location (pi % locs.length), ensures gender balance
+  const locPairIdxs = Array.from({length: locs.length}, () => []);
+  for (let pi = 0; pi < n; pi++) locPairIdxs[pi % locs.length].push(pi);
   for (let si = 0; si < slots.length; si++) {
     for (let li = 0; li < locs.length; li++) {
-      const startIdx = li * pairsPerLoc;
-      const count = Math.min(pairsPerLoc, n - startIdx);
-      if (count <= 0) continue;
-      const pairIdx = startIdx + (si % count);
-      const mems = S_pairs[pairIdx].names;
+      const idxs = locPairIdxs[li];
+      if (!idxs.length) continue;
+      const mems = S_pairs[idxs[si % idxs.length]].names;
       rows.push({ event_id: ev.id, location_index: li, slot_index: si, member_names: mems });
       S.assigns[`${li}_${si}`] = mems;
     }
@@ -1419,6 +1452,61 @@ async function doAssignWithInterval(autoInterval) {
     <div class="ev-banner" style="cursor:default;margin-bottom:12px">
       <h3>📅 ${fmtDate(ev2.date)} ${ev2.title||''}</h3>
       <p>🕐 ${ev2.start_time}~${ev2.end_time} | ⏱️ ${autoInterval}분 간격</p>
+    </div>`;
+  renderLocChips();
+  renderSlots();
+}
+
+async function doAssignJangnal(interval) {
+  const ev = S.selEv;
+  const locs = S.selEv.locations || [];
+  if (ev.interval_minutes !== interval) {
+    await db.from('events').update({ interval_minutes: interval }).eq('id', ev.id);
+    S.selEv.interval_minutes = interval;
+  }
+  await db.from('assignments').delete().eq('event_id', ev.id);
+  S.assigns = {};
+  const rows = [];
+
+  const amPairs = S_pairs.filter(p => p.ampm === 'am');
+  const pmPairs = S_pairs.filter(p => p.ampm === 'pm');
+  const amSlots = getSlots('09:15', '12:00', interval);
+  const pmSlots = getSlots('12:00', '16:00', interval);
+  const pmOffset = amSlots.length;
+
+  const buildLocIdxs = (pairs) => {
+    const idxs = Array.from({length: locs.length}, () => []);
+    pairs.forEach((_, pi) => idxs[pi % locs.length].push(pi));
+    return idxs;
+  };
+  const amLocIdxs = buildLocIdxs(amPairs);
+  const pmLocIdxs = buildLocIdxs(pmPairs);
+
+  for (let si = 0; si < amSlots.length; si++) {
+    for (let li = 0; li < locs.length; li++) {
+      const idxs = amLocIdxs[li];
+      if (!idxs.length) continue;
+      const mems = amPairs[idxs[si % idxs.length]].names;
+      rows.push({ event_id: ev.id, location_index: li, slot_index: si, member_names: mems });
+      S.assigns[`${li}_${si}`] = mems;
+    }
+  }
+  for (let si = 0; si < pmSlots.length; si++) {
+    for (let li = 0; li < locs.length; li++) {
+      const idxs = pmLocIdxs[li];
+      if (!idxs.length) continue;
+      const mems = pmPairs[idxs[si % idxs.length]].names;
+      const gsi = pmOffset + si;
+      rows.push({ event_id: ev.id, location_index: li, slot_index: gsi, member_names: mems });
+      S.assigns[`${li}_${gsi}`] = mems;
+    }
+  }
+  if (rows.length) await db.from('assignments').insert(rows);
+
+  document.getElementById('assign-ev-info').innerHTML = `
+    <div class="ev-banner" style="cursor:default;margin-bottom:12px">
+      <h3>📅 ${fmtDate(ev.date)} ${ev.title||''}</h3>
+      <p>오전 09:15~12:00 · 오후 12:00~16:00 · ⏱️ ${interval}분 간격</p>
     </div>`;
   renderLocChips();
   renderSlots();
@@ -1473,6 +1561,23 @@ async function assignPairsToSlots() {
   if (S_pairs.length === 0) { alert('먼저 짝을 만들어 주세요.'); return; }
   const ev = S.selEv;
   const numLocs = (ev.locations || []).length || 1;
+  const isJangnal = ev.title === '장날 전시대';
+
+  if (isJangnal) {
+    const amPairs = S_pairs.filter(p => p.ampm === 'am');
+    const pmPairs = S_pairs.filter(p => p.ampm === 'pm');
+    const maxN = Math.max(amPairs.length, pmPairs.length);
+    if (maxN === 0) { alert('오전/오후 짝이 없습니다.'); return; }
+    const { interval, err, warn } = calcAutoInterval(maxN, numLocs);
+    if (err) { alert(err + '\n\n장소를 늘리면 장소당 인원이 줄어듭니다.'); return; }
+    let msg = `장날 배정:\n• 오전 ${amPairs.length}쌍 / 오후 ${pmPairs.length}쌍 / 장소 ${numLocs}곳 → ${interval}분 간격`;
+    if (warn) msg += `\n⚠️ ${warn}`;
+    msg += '\n\n기존 배정이 초기화됩니다.';
+    if (!confirm(msg)) return;
+    await doAssignJangnal(interval);
+    return;
+  }
+
   const { interval: autoInterval, err, warn } = calcAutoInterval(S_pairs.length, numLocs);
   if (err) { alert(err + '\n\n위 📍 장소 추가 버튼으로 장소를 늘리면 장소당 인원이 줄어듭니다.'); return; }
   let confirmMsg = `짝 ${S_pairs.length}쌍 / 장소 ${numLocs}곳 → ${autoInterval}분 간격으로 배정합니다.`;
@@ -1530,35 +1635,56 @@ async function addLateJoiners() {
 }
 
 function renderSlots() {
-  const ev    = S.selEv;
-  const slots = getSlots(ev.start_time, ev.end_time, ev.interval_minutes);
-  const locs  = ev.locations || [];
-  const n     = S_pairs.length;
-  const pairsPerLoc = locs.length > 1 && n > 0 ? Math.ceil(n / locs.length) : 0;
+  const ev = S.selEv;
+  const locs = ev.locations || [];
+  const n = S_pairs.length;
+  const isJangnal = ev.title === '장날 전시대';
 
+  if (isJangnal) {
+    const interval = ev.interval_minutes || 20;
+    const amSlots = getSlots('09:15', '12:00', interval);
+    const pmSlots = getSlots('12:00', '16:00', interval);
+    const pmOffset = amSlots.length;
+    const amPairs = S_pairs.filter(p => p.ampm === 'am');
+    const pmPairs = S_pairs.filter(p => p.ampm === 'pm');
+    const showNum = locs.length > 1;
+
+    document.getElementById('slots-wrap').innerHTML = locs.map((loc, li) => {
+      const amCnt = showNum ? amPairs.filter((_, pi) => pi % locs.length === li).length : amPairs.length;
+      const pmCnt = showNum ? pmPairs.filter((_, pi) => pi % locs.length === li).length : pmPairs.length;
+      return `<div class="card">
+        <div class="loc-title">📍 ${loc}</div>
+        <div style="font-size:12px;font-weight:700;color:#e65100;margin-bottom:6px">오전 09:15~12:00</div>
+        ${amSlots.map((sl, si) => _slotRow(li, si, sl, S.assigns[`${li}_${si}`]||[], showNum, amCnt>0?(si%amCnt)+1:si+1)).join('')}
+        <div style="font-size:12px;font-weight:700;color:#1565c0;margin:12px 0 6px">오후 12:00~16:00</div>
+        ${pmSlots.map((sl, si) => { const gsi=pmOffset+si; return _slotRow(li,gsi,sl,S.assigns[`${li}_${gsi}`]||[],showNum,pmCnt>0?(si%pmCnt)+1:si+1); }).join('')}
+      </div>`;
+    }).join('');
+    return;
+  }
+
+  const slots = getSlots(ev.start_time, ev.end_time, ev.interval_minutes);
+  const showNum = locs.length > 1;
   document.getElementById('slots-wrap').innerHTML = locs.map((loc, li) => {
-    const locPairCount = pairsPerLoc > 0 ? Math.min(pairsPerLoc, n - li * pairsPerLoc) : 0;
-    return `
-    <div class="card">
+    const locCnt = showNum && n > 0 ? S_pairs.filter((_, pi) => pi % locs.length === li).length : n;
+    return `<div class="card">
       <div class="loc-title">📍 ${loc}</div>
-      ${slots.map((sl, si) => {
-        const key  = `${li}_${si}`;
-        const mems = S.assigns[key] || [];
-        const pairNum = locPairCount > 0 ? (si % locPairCount) + 1 : si + 1;
-        return `
-          <div class="slot-row">
-            <div class="slot-time" style="min-width:52px">
-              ${sl.start}<br><span style="color:#ccc">│</span><br>${sl.end}
-              ${locs.length > 1 ? `<br><span style="color:#2c5f2e;font-size:10px;font-weight:700">${pairNum}번짝</span>` : ''}
-            </div>
-            <div class="slot-cell ${mems.length?'has-members':''}">
-              ${mems.map(m => `<div class="m-name"><span>${m}</span><span class="x" onclick="removeMemberFromSlot(${li},${si},'${m.replace(/'/g,"\\'")}')">✕</span></div>`).join('')}
-              ${!mems.length ? '<span class="slot-hint">미배정</span>' : ''}
-            </div>
-          </div>`;
-      }).join('')}
+      ${slots.map((sl, si) => _slotRow(li, si, sl, S.assigns[`${li}_${si}`]||[], showNum, locCnt>0?(si%locCnt)+1:si+1)).join('')}
     </div>`;
   }).join('');
+}
+
+function _slotRow(li, si, sl, mems, showPairNum, pairNum) {
+  return `<div class="slot-row">
+    <div class="slot-time" style="min-width:52px">
+      ${sl.start}<br><span style="color:#ccc">│</span><br>${sl.end}
+      ${showPairNum?`<br><span style="color:#2c5f2e;font-size:10px;font-weight:700">${pairNum}번짝</span>`:''}
+    </div>
+    <div class="slot-cell ${mems.length?'has-members':''}">
+      ${mems.map(m=>`<div class="m-name"><span>${m}</span><span class="x" onclick="removeMemberFromSlot(${li},${si},'${m.replace(/'/g,"\\'")}')">✕</span></div>`).join('')}
+      ${!mems.length?'<span class="slot-hint">미배정</span>':''}
+    </div>
+  </div>`;
 }
 
 // ── LEADER: OUTPUT TAB ────────────────────────────────────
@@ -1583,24 +1709,43 @@ async function loadOutput(evId) {
   const { data: ev } = await db.from('events').select('*').eq('id', evId).maybeSingle();
   S.selEv = ev;
 
-  const slots = getSlots(ev.start_time, ev.end_time, ev.interval_minutes);
   const locs  = ev.locations || [];
   const { data: assigns } = await db.from('assignments').select('*').eq('event_id', evId);
   const am = {};
   (assigns||[]).forEach(a => { am[`${a.location_index}_${a.slot_index}`] = a.member_names||[]; });
 
+  const isJangnal = ev.title === '장날 전시대';
+  let slots;
+  let amCount = 0;
+  if (isJangnal) {
+    const amSl = getSlots('09:15', '12:00', ev.interval_minutes || 20);
+    const pmSl = getSlots('12:00', '16:00', ev.interval_minutes || 20);
+    amCount = amSl.length;
+    slots = [...amSl, ...pmSl];
+  } else {
+    slots = getSlots(ev.start_time, ev.end_time, ev.interval_minutes);
+  }
+
   const dow = getDow(ev.date);
   const th  = locs.map(l => `<th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">${l}</th>`).join('');
   const rows = slots.map((sl, si) => {
+    const isAmRow = isJangnal && si < amCount;
+    const dividerRow = isJangnal && si === amCount
+      ? `<tr><td colspan="${locs.length+1}" style="background:#e3f2fd;color:#1565c0;padding:5px 10px;font-size:11px;font-weight:700;border:1px solid #90caf9;">오후 12:00~16:00</td></tr>`
+      : '';
     const tds = locs.map((_,li) => {
       const ms = am[`${li}_${si}`]||[];
       return `<td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;">${ms.join('<br>')||'—'}</td>`;
     }).join('');
-    return `<tr>
-      <td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;font-weight:600;background:#fffde7;white-space:nowrap;font-size:12px;">${sl.start}~${sl.end}</td>
+    return `${dividerRow}<tr>
+      <td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;font-weight:600;background:${isJangnal?(isAmRow?'#fff3e0':'#e3f2fd'):'#fffde7'};white-space:nowrap;font-size:12px;">${sl.start}~${sl.end}</td>
       ${tds}
     </tr>`;
   }).join('');
+
+  const amDivider = isJangnal
+    ? `<tr><td colspan="${locs.length+1}" style="background:#fff3e0;color:#e65100;padding:5px 10px;font-size:11px;font-weight:700;border:1px solid #ffcc80;">오전 09:15~12:00</td></tr>`
+    : '';
 
   document.getElementById('out-table-wrap').innerHTML = `
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
@@ -1612,7 +1757,7 @@ async function loadOutput(evId) {
           <th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">시간</th>${th}
         </tr>
       </thead>
-      <tbody>${rows}</tbody>
+      <tbody>${amDivider}${rows}</tbody>
     </table>`;
 }
 
@@ -1875,29 +2020,43 @@ function renderDirectAddList() {
     if (search && !m.name.toLowerCase().includes(search)) return false;
     return true;
   });
+  const isJangnal = S.selEv && S.selEv.title === '장날 전시대';
   const el = document.getElementById('direct-add-list');
   if (!available.length) {
     el.innerHTML = '<p style="color:#aaa;font-size:13px;text-align:center;padding:20px 0">추가할 수 있는 분이 없습니다</p>';
     return;
   }
-  el.innerHTML = available.map(m =>
-    `<div onclick="addDirectAttendee('${m.id}','${m.name.replace(/'/g,"\\'")}',this)"
+  el.innerHTML = available.map(m => {
+    const nm = m.name.replace(/'/g,"\\'");
+    if (isJangnal) {
+      return `<div style="padding:10px 14px;border-radius:10px;border:1.5px solid #e0e0e0;font-size:14px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <span>${m.name}</span>
+        <div style="display:flex;gap:6px">
+          <button onclick="addDirectAttendee('${m.id}','${nm}','am')" style="padding:5px 11px;border-radius:8px;border:1px solid #ffcc80;background:#fff3e0;color:#e65100;font-size:12px;font-weight:600;cursor:pointer">오전</button>
+          <button onclick="addDirectAttendee('${m.id}','${nm}','pm')" style="padding:5px 11px;border-radius:8px;border:1px solid #90caf9;background:#e3f2fd;color:#1565c0;font-size:12px;font-weight:600;cursor:pointer">오후</button>
+        </div>
+      </div>`;
+    }
+    return `<div onclick="addDirectAttendee('${m.id}','${nm}',null)"
       style="padding:12px 14px;border-radius:10px;border:1.5px solid #e0e0e0;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:space-between"
       onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background=''">
       <span>${m.name}</span><span style="color:#2c5f2e;font-size:12px">+ 추가</span>
-    </div>`
-  ).join('');
+    </div>`;
+  }).join('');
 }
 
-async function addDirectAttendee(memberId, name) {
+async function addDirectAttendee(memberId, name, ampm) {
   if (!S.selEv) return;
   const ev = S.selEv;
-  const allSlots = getHourSlots(ev.start_time, ev.end_time).map(s => `${s.start} ~ ${s.end}`);
+  const isJangnal = ev.title === '장날 전시대';
+  const timeSlots = isJangnal
+    ? (ampm === 'am' ? ['09:15 ~ 12:00'] : ['12:00 ~ 16:00'])
+    : [`${ev.start_time} ~ ${ev.end_time}`];
   const { data, error } = await db.from('registrations').insert({
-    event_id: ev.id, member_id: memberId, member_name: name, time_slots: allSlots
+    event_id: ev.id, member_id: memberId, member_name: name, time_slots: timeSlots
   }).select().maybeSingle();
   if (error) { alert('추가 실패: ' + error.message); return; }
-  S.regs.push({ id: data.id, event_id: ev.id, member_id: memberId, member_name: name, time_slots: allSlots });
+  S.regs.push({ id: data.id, event_id: ev.id, member_id: memberId, member_name: name, time_slots: timeSlots });
   document.getElementById('reg-cnt').textContent = `(${S.regs.length}명)`;
   renderPool();
   renderDirectAddList();
