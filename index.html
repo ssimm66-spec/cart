@@ -308,7 +308,14 @@ textarea { resize: vertical; min-height: 70px; }
       <div class="card">
         <div class="flex-between mb-8">
           <div class="sec-title" style="margin:0">① 짝 만들기 <span id="reg-cnt" style="color:#2c5f2e;font-weight:400;font-size:13px"></span></div>
-          <button class="btn btn-secondary btn-sm" onclick="autoMakePairs()">⚡ 자동 짝 만들기</button>
+          <div style="display:flex;align-items:center;gap:6px">
+            <div style="display:flex;border:1.5px solid #2c5f2e;border-radius:8px;overflow:hidden;font-size:12px">
+              <button id="grp-btn-2" onclick="setGrpSize(2)" style="padding:4px 9px;background:#2c5f2e;color:#fff;border:none;cursor:pointer;font-family:inherit">2인</button>
+              <button id="grp-btn-3" onclick="setGrpSize(3)" style="padding:4px 9px;background:#fff;color:#2c5f2e;border:none;cursor:pointer;font-family:inherit">3인</button>
+              <button id="grp-btn-4" onclick="setGrpSize(4)" style="padding:4px 9px;background:#fff;color:#2c5f2e;border:none;cursor:pointer;font-family:inherit">4인</button>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="autoMakePairs()">⚡ 자동</button>
+          </div>
         </div>
         <p class="text-muted mb-8" style="font-size:11px">이름 탭 → 선택 → 짝 만들기 버튼</p>
         <div id="reg-pool" class="chip-pool"></div>
@@ -1108,10 +1115,20 @@ function resetPairs() {
   renderSlots();
 }
 
-function autoMakePairs() {
-  if (!confirm('자동으로 짝을 만들면 기존 짝이 초기화됩니다. 계속할까요?')) return;
+let _grpSize = 2;
+function setGrpSize(n) {
+  _grpSize = n;
+  [2, 3, 4].forEach(v => {
+    const btn = document.getElementById(`grp-btn-${v}`);
+    if (!btn) return;
+    btn.style.background = v === n ? '#2c5f2e' : '#fff';
+    btn.style.color = v === n ? '#fff' : '#2c5f2e';
+  });
+}
 
-  // 신청자별 gender 매핑 (members 테이블에서 미리 로드된 데이터 활용)
+function autoMakePairs() {
+  if (!confirm(`자동으로 ${_grpSize}인 1조로 짝을 만들면 기존 짝이 초기화됩니다. 계속할까요?`)) return;
+
   const genderMap = {};
   (S._membersMeta || []).forEach(m => { genderMap[m.name] = m.gender || '형제'; });
 
@@ -1123,10 +1140,10 @@ function autoMakePairs() {
 
   S_pairs = [];
   const makePairsFrom = (list) => {
-    for (let i = 0; i < list.length; i += 2) {
-      S_pairs.push({ names: list.slice(i, i + 2) });
+    for (let i = 0; i < list.length; i += _grpSize) {
+      S_pairs.push({ names: list.slice(i, i + _grpSize) });
     }
-    // 홀수면 마지막 짝에 합치기
+    // 1명만 남으면 앞 짝에 합치기
     if (S_pairs.length >= 2 && S_pairs[S_pairs.length - 1].names.length === 1) {
       const lone = S_pairs.pop().names[0];
       S_pairs[S_pairs.length - 1].names.push(lone);
