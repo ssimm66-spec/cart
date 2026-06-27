@@ -88,9 +88,10 @@ textarea { resize: vertical; min-height: 70px; }
 .pair-member.dragging { opacity: 0.4; }
 .pair-card { user-select: none; -webkit-user-select: none; }
 .pair-card.drag-over { border-color: #2c5f2e !important; background: #f0f8f0; }
-.pair-move-btn { background: none; border: 1px solid #e0e0e0; border-radius: 4px; color: #aaa; font-size: 13px; cursor: pointer; padding: 2px 5px; line-height: 1; touch-action: manipulation; }
-.pair-move-btn:active { background: #f0f0f0; color: #333; }
-.pair-move-btn:disabled { opacity: 0.2; cursor: default; }
+.pair-drag-handle { cursor: grab; color: #ccc; font-size: 18px; padding: 4px 6px; flex-shrink: 0; user-select: none; -webkit-user-select: none; touch-action: none; line-height: 1; }
+.pair-drag-handle:active { cursor: grabbing; color: #555; }
+.pair-card.touch-drag-over { border-color: #2c5f2e !important; background: #e8f5e9 !important; }
+.pair-card.pair-dragging { opacity: 0.35; }
 .chip-pool { display: flex; flex-wrap: wrap; padding: 4px 0; }
 
 /* Assignment slots */
@@ -1353,18 +1354,18 @@ function renderPairs() {
     <div class="pair-card" id="pair-card-${i}"
       ondragover="pairCardDragOver(event,${i})"
       ondragleave="pairCardDragLeave(${i})"
-      ondrop="memberDropOnPair(event,${i})"
+      ondrop="pairCardDrop(event,${i})"
       style="display:flex;align-items:center;background:#f8f9fa;border-radius:8px;padding:10px 12px;margin-bottom:6px;border:1.5px solid #e0e0e0;gap:6px;">
-      <div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0">
-        <button class="pair-move-btn" onclick="movePairUp(${i})" ${isFirst?'disabled':''}>▲</button>
-        <button class="pair-move-btn" onclick="movePairDown(${i})" ${isLast?'disabled':''}>▼</button>
-      </div>
+      <span class="pair-drag-handle" draggable="true"
+        ondragstart="pairHandleDragStart(event,${i})"
+        ondragend="pairHandleDragEnd(event)"
+        ontouchstart="pairHandleTouchStart(event,${i})">☰</span>
       <span style="font-size:12px;color:#999;flex-shrink:0">${localNum}.</span>
       <div style="display:flex;flex-wrap:wrap;flex:1;gap:2px">
         ${p.names.map(name => `
           <span class="pair-member" draggable="true"
-            ontouchstart="event.preventDefault()"
-            ondragstart="memberDragStart(event,${i},'${name}')"
+            ontouchstart="memberTouchStart(event,${i},'${name.replace(/'/g,"\\'")}')"
+            ondragstart="memberDragStart(event,${i},'${name.replace(/'/g,"\\'")}')"
             ondragend="memberDragEnd(event)">
             ${name}<span onclick="event.stopPropagation();removeMemberFromPair(${i},'${name.replace(/'/g,"\\'")}')" style="margin-left:4px;color:#e53935;font-size:12px;cursor:pointer">✕</span>
           </span>`).join('')}
@@ -1405,31 +1406,85 @@ function renderPairs() {
   html += `<div id="pair-unassign-zone"
     ondragover="pairCardDragOver(event,-1)"
     ondragleave="pairCardDragLeave(-1)"
-    ondrop="memberDropOnPair(event,-1)"
+    ondrop="pairCardDrop(event,-1)"
     style="border:2px dashed #ddd;border-radius:8px;padding:10px;text-align:center;color:#bbb;font-size:12px;margin-top:4px">
     여기에 놓으면 짝 해제
   </div>`;
   el.innerHTML = html;
 }
 
-// ── 짝 순서 이동 (▲/▼ 버튼) ──
-function movePairUp(i) {
-  const ampm = S_pairs[i]?.ampm;
-  const isJangnal = S.selEv?.title === '장날 전시대';
-  let j = i - 1;
-  if (isJangnal) { while (j >= 0 && S_pairs[j]?.ampm !== ampm) j--; }
-  if (j < 0) return;
-  [S_pairs[j], S_pairs[i]] = [S_pairs[i], S_pairs[j]];
-  savePairsLocal(); renderPairs();
+// ── 짝 순서 드래그 (☰ 핸들, HTML5 + 터치) ──
+let pairDragIdx = null;
+
+function pairHandleDragStart(e, idx) {
+  pairDragIdx = idx;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('type', 'pair');
+  document.getElementById(`pair-card-${idx}`)?.classList.add('pair-dragging');
+  e.stopPropagation();
 }
-function movePairDown(i) {
-  const ampm = S_pairs[i]?.ampm;
-  const isJangnal = S.selEv?.title === '장날 전시대';
-  let j = i + 1;
-  if (isJangnal) { while (j < S_pairs.length && S_pairs[j]?.ampm !== ampm) j++; }
-  if (j >= S_pairs.length) return;
-  [S_pairs[i], S_pairs[j]] = [S_pairs[j], S_pairs[i]];
-  savePairsLocal(); renderPairs();
+
+function pairHandleDragEnd(e) {
+  if (pairDragIdx !== null) {
+    document.getElementById(`pair-card-${pairDragIdx}`)?.classList.remove('pair-dragging');
+    pairDragIdx = null;
+  }
+  document.querySelectorAll('.pair-card.touch-drag-over').forEach(el => el.classList.remove('touch-drag-over'));
+}
+
+let _pairTouch = null;
+
+function pairHandleTouchStart(e, idx) {
+  e.preventDefault();
+  e.stopPropagation();
+  const touch = e.touches[0];
+  const card = document.getElementById(`pair-card-${idx}`);
+  const rect = card.getBoundingClientRect();
+  const clone = card.cloneNode(true);
+  clone.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;opacity:0.75;z-index:9999;pointer-events:none;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.2);`;
+  document.body.appendChild(clone);
+  card.classList.add('pair-dragging');
+  _pairTouch = { idx, clone, lastEl: null, offX: touch.clientX - rect.left, offY: touch.clientY - rect.top };
+  document.addEventListener('touchmove', _pairTouchMove, { passive: false });
+  document.addEventListener('touchend', _pairTouchEnd, { once: true });
+}
+
+function _pairTouchMove(e) {
+  if (!_pairTouch) return;
+  e.preventDefault();
+  const touch = e.touches[0];
+  const { clone, offX, offY } = _pairTouch;
+  clone.style.left = `${touch.clientX - offX}px`;
+  clone.style.top  = `${touch.clientY - offY}px`;
+  clone.style.visibility = 'hidden';
+  const el = document.elementFromPoint(touch.clientX, touch.clientY);
+  clone.style.visibility = '';
+  const targetCard = el?.closest('.pair-card');
+  if (_pairTouch.lastEl && _pairTouch.lastEl !== targetCard) _pairTouch.lastEl.classList.remove('touch-drag-over');
+  if (targetCard && targetCard.id !== `pair-card-${_pairTouch.idx}`) {
+    targetCard.classList.add('touch-drag-over');
+    _pairTouch.lastEl = targetCard;
+  } else {
+    _pairTouch.lastEl = null;
+  }
+}
+
+function _pairTouchEnd(e) {
+  document.removeEventListener('touchmove', _pairTouchMove);
+  if (!_pairTouch) return;
+  const { idx, clone, lastEl } = _pairTouch;
+  _pairTouch = null;
+  clone.remove();
+  document.getElementById(`pair-card-${idx}`)?.classList.remove('pair-dragging');
+  if (lastEl) {
+    lastEl.classList.remove('touch-drag-over');
+    const toIdx = parseInt(lastEl.id.replace('pair-card-', ''));
+    if (!isNaN(toIdx) && toIdx !== idx) {
+      const dragged = S_pairs.splice(idx, 1)[0];
+      S_pairs.splice(toIdx > idx ? toIdx - 1 : toIdx, 0, dragged);
+      savePairsLocal(); renderPairs();
+    }
+  }
 }
 
 // ── 멤버 → 다른 짝으로 드래그 ──
@@ -1448,46 +1503,119 @@ function memberDragEnd(e) {
   document.querySelectorAll('.pair-card.drag-over, #pair-unassign-zone.drag-over')
     .forEach(el => el.classList.remove('drag-over'));
 }
+
+// ── 멤버 칩 터치 드래그 ──
+let _memberTouch = null;
+
+function memberTouchStart(e, pairIdx, name) {
+  if (_pairTouch) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const touch = e.touches[0];
+  const chip = e.currentTarget;
+  const rect = chip.getBoundingClientRect();
+  const clone = chip.cloneNode(true);
+  clone.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;opacity:0.85;z-index:9999;pointer-events:none;border-radius:16px;`;
+  document.body.appendChild(clone);
+  chip.classList.add('dragging');
+  _memberTouch = { fromPairIdx: pairIdx, name, clone, chip, lastEl: null };
+  document.addEventListener('touchmove', _memberTouchMove, { passive: false });
+  document.addEventListener('touchend', _memberTouchEnd, { once: true });
+}
+
+function _memberTouchMove(e) {
+  if (!_memberTouch) return;
+  e.preventDefault();
+  const touch = e.touches[0];
+  const { clone } = _memberTouch;
+  clone.style.left = `${touch.clientX - 30}px`;
+  clone.style.top  = `${touch.clientY - 15}px`;
+  clone.style.visibility = 'hidden';
+  const el = document.elementFromPoint(touch.clientX, touch.clientY);
+  clone.style.visibility = '';
+  const zone = document.getElementById('pair-unassign-zone');
+  const card = el?.closest('.pair-card') || (zone?.contains(el) ? zone : null);
+  if (_memberTouch.lastEl && _memberTouch.lastEl !== card) _memberTouch.lastEl.classList.remove('drag-over');
+  if (card) {
+    card.classList.add('drag-over');
+    _memberTouch.lastEl = card;
+  } else {
+    _memberTouch.lastEl = null;
+  }
+}
+
+function _memberTouchEnd(e) {
+  document.removeEventListener('touchmove', _memberTouchMove);
+  if (!_memberTouch) return;
+  const { fromPairIdx, name, clone, chip, lastEl } = _memberTouch;
+  _memberTouch = null;
+  clone.remove();
+  chip.classList.remove('dragging');
+  if (lastEl) {
+    lastEl.classList.remove('drag-over');
+    if (lastEl.id === 'pair-unassign-zone') {
+      applyMemberDrop(fromPairIdx, name, -1);
+    } else {
+      const toIdx = parseInt(lastEl.id.replace('pair-card-', ''));
+      if (!isNaN(toIdx)) applyMemberDrop(fromPairIdx, name, toIdx);
+    }
+  }
+}
 function pairCardDragOver(e, i) {
-  if (!memberDrag) return;
+  if (!memberDrag && pairDragIdx === null) return;
   e.preventDefault();
   const el = i === -1
     ? document.getElementById('pair-unassign-zone')
     : document.getElementById(`pair-card-${i}`);
-  el?.classList.add('drag-over');
+  if (pairDragIdx !== null && i !== -1 && i !== pairDragIdx) {
+    document.querySelectorAll('.pair-card.touch-drag-over').forEach(c => c.classList.remove('touch-drag-over'));
+    el?.classList.add('touch-drag-over');
+  } else if (memberDrag) {
+    el?.classList.add('drag-over');
+  }
 }
 function pairCardDragLeave(i) {
   const el = i === -1
     ? document.getElementById('pair-unassign-zone')
     : document.getElementById(`pair-card-${i}`);
   el?.classList.remove('drag-over');
+  el?.classList.remove('touch-drag-over');
 }
-function memberDropOnPair(e, toPairIdx) {
-  e.preventDefault();
-  if (!memberDrag) return;
-  const { fromPairIdx, name } = memberDrag;
-  memberDrag = null;
-
+function applyMemberDrop(fromPairIdx, name, toPairIdx) {
   if (toPairIdx === -1) {
-    // 짝 해제 → 해당 멤버를 짝에서 제거
     S_pairs[fromPairIdx].names = S_pairs[fromPairIdx].names.filter(n => n !== name);
     if (S_pairs[fromPairIdx].names.length === 0) S_pairs.splice(fromPairIdx, 1);
   } else {
     if (fromPairIdx === toPairIdx) return;
-    // 출발 짝에서 제거
     S_pairs[fromPairIdx].names = S_pairs[fromPairIdx].names.filter(n => n !== name);
     if (S_pairs[fromPairIdx].names.length === 0) {
       S_pairs.splice(fromPairIdx, 1);
-      // 인덱스 보정
       if (toPairIdx > fromPairIdx) toPairIdx--;
     }
-    // 목적 짝에 추가
     S_pairs[toPairIdx].names.push(name);
   }
-
   savePairsLocal();
   renderPool();
   renderPairs();
+}
+function pairCardDrop(e, toPairIdx) {
+  e.preventDefault();
+  if (pairDragIdx !== null && toPairIdx !== -1) {
+    const fromIdx = pairDragIdx;
+    pairDragIdx = null;
+    document.querySelectorAll('.pair-card.pair-dragging,.pair-card.touch-drag-over').forEach(el => {
+      el.classList.remove('pair-dragging'); el.classList.remove('touch-drag-over');
+    });
+    if (fromIdx === toPairIdx) return;
+    const dragged = S_pairs.splice(fromIdx, 1)[0];
+    S_pairs.splice(toPairIdx > fromIdx ? toPairIdx - 1 : toPairIdx, 0, dragged);
+    savePairsLocal(); renderPairs();
+  } else if (memberDrag) {
+    const { fromPairIdx, name } = memberDrag;
+    memberDrag = null;
+    document.querySelectorAll('.pair-card.drag-over,#pair-unassign-zone.drag-over').forEach(el => el.classList.remove('drag-over'));
+    applyMemberDrop(fromPairIdx, name, toPairIdx);
+  }
 }
 
 function removePair(i) {
