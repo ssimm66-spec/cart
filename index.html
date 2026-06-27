@@ -1134,22 +1134,40 @@ function loadPairsLocal() {
 function renderPool() {
   const inPair = new Set(S_pairs.flatMap(p => p.names));
   const isJangnal = S.selEv && S.selEv.title === '장날 전시대';
-  document.getElementById('reg-pool').innerHTML = S.regs.length
-    ? S.regs.map(r => {
-        const isPaired = inPair.has(r.member_name);
-        const isSel    = S_selPair.has(r.member_name);
-        const nm = r.member_name.replace(/'/g,"\\'");
-        const timeBadge = isJangnal && r.time_slots?.length
-          ? `<span style="font-size:10px;background:${r.time_slots[0].includes('09:15')?'#fff3e0':'#e3f2fd'};color:#555;border-radius:4px;padding:1px 4px;margin-left:3px">${r.time_slots[0].includes('09:15')?'오전':'오후'}</span>`
-          : '';
-        return `<div class="chip ${isPaired?'done':''} ${isSel?'selected':''}"
-          onclick="tapForPair('${nm}')"
-          title="${(r.time_slots||[]).join(', ')||'시간 미선택'}">
-          ${r.member_name}${timeBadge}${isPaired?' ✓':''}
-          <span onclick="event.stopPropagation();deleteFromPool('${nm}')" style="margin-left:6px;color:#e53935;font-size:11px;opacity:0.8">✕</span>
-        </div>`;
-      }).join('')
-    : '<p class="text-muted" style="font-size:13px">신청자가 없습니다.</p>';
+
+  const makeChip = r => {
+    const isPaired = inPair.has(r.member_name);
+    const isSel    = S_selPair.has(r.member_name);
+    const nm = r.member_name.replace(/'/g,"\\'");
+    return `<div class="chip ${isPaired?'done':''} ${isSel?'selected':''}"
+      onclick="tapForPair('${nm}')"
+      title="${(r.time_slots||[]).join(', ')||'시간 미선택'}">
+      ${r.member_name}${isPaired?' ✓':''}
+      <span onclick="event.stopPropagation();deleteFromPool('${nm}')" style="margin-left:6px;color:#e53935;font-size:11px;opacity:0.8">✕</span>
+    </div>`;
+  };
+
+  let html = '';
+  if (!S.regs.length) {
+    html = '<p class="text-muted" style="font-size:13px">신청자가 없습니다.</p>';
+  } else if (isJangnal) {
+    const amRegs = S.regs.filter(r => (r.time_slots||[]).some(s => s.includes('09:15')));
+    const pmRegs = S.regs.filter(r => (r.time_slots||[]).some(s => s.includes('12:00')));
+    if (amRegs.length) {
+      html += `<div style="width:100%;font-size:11px;font-weight:700;color:#e65100;background:#fff3e0;padding:3px 8px;border-radius:6px;margin-bottom:5px">오전 (${amRegs.length}명)</div>`;
+      html += amRegs.map(makeChip).join('');
+    }
+    if (pmRegs.length) {
+      html += `<div style="width:100%;font-size:11px;font-weight:700;color:#1565c0;background:#e3f2fd;padding:3px 8px;border-radius:6px;margin:${amRegs.length?'8px':0} 0 5px">오후 (${pmRegs.length}명)</div>`;
+      html += pmRegs.map(makeChip).join('');
+    }
+    if (!amRegs.length && !pmRegs.length) {
+      html = '<p class="text-muted" style="font-size:13px">신청자가 없습니다.</p>';
+    }
+  } else {
+    html = S.regs.map(makeChip).join('');
+  }
+  document.getElementById('reg-pool').innerHTML = html;
 
   const btn = document.getElementById('make-pair-btn');
   const cnt = S_selPair.size;
