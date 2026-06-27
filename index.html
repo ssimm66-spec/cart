@@ -330,7 +330,7 @@ textarea { resize: vertical; min-height: 70px; }
     <div id="assign-body" style="display:none">
       <button class="back-btn" onclick="backToEvSelect()">← 전시대 목록</button>
       <div id="assign-ev-info"></div>
-      <div id="assign-locs-panel" class="card" style="display:none;margin-bottom:12px">
+      <div id="assign-locs-panel" class="card" style="margin-bottom:12px">
         <div class="flex-between mb-8">
           <div class="sec-title" style="margin:0">📍 전시대 장소</div>
           <button class="btn btn-outline btn-sm" onclick="promptAddLocation()">+ 장소 추가</button>
@@ -1523,7 +1523,7 @@ function renderLocChips() {
           📍 ${loc}
           ${locs.length > 1 ? `<span onclick="removeLocation(${i})" style="margin-left:6px;color:#e53935;font-size:11px;cursor:pointer" title="장소 삭제">✕</span>` : ''}
         </div>`).join('')
-    : '<span style="color:#aaa;font-size:13px">장소가 없습니다. 전시대 설정에서 추가하세요.</span>';
+    : '<span style="color:#aaa;font-size:13px">오른쪽 버튼으로 장소를 추가하세요.</span>';
 }
 
 async function promptAddLocation() {
