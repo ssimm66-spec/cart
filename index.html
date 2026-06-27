@@ -588,6 +588,7 @@ function gotoTab(name) {
 }
 
 function doLogout() {
+  localStorage.removeItem('cart_saved_user');
   S.user = null; S.selEv = null; S.selMember = null;
   loginLeader = null;
   ['inp-name','inp-pw'].forEach(id => document.getElementById(id).value = '');
@@ -626,6 +627,7 @@ async function doLogin() {
     const { data: member } = await db.from('members').select('*').eq('name', name).eq('active', true).maybeSingle();
     if (member) {
       S.user = { type: 'member', id: member.id, name: member.name };
+      localStorage.setItem('cart_saved_user', JSON.stringify({ type: 'member', name: member.name }));
       document.getElementById('m-name-hdr').textContent = member.name;
       showScreen('member');
       memberShowList();
@@ -636,6 +638,7 @@ async function doLogin() {
     if (!pw) { errEl.textContent = '비밀번호를 입력해주세요.'; return; }
     if (loginLeader.password !== pw) { errEl.textContent = '비밀번호가 틀렸습니다.'; return; }
     S.user = { type: 'leader', id: loginLeader.id, name: loginLeader.name, isAdmin: !!loginLeader.is_admin };
+    localStorage.setItem('cart_saved_user', JSON.stringify({ type: 'leader', name: loginLeader.name }));
     document.getElementById('l-name-hdr').textContent = loginLeader.name;
     document.getElementById('l-role-hdr').textContent = loginLeader.is_admin ? '관리자' : '인도자';
     document.getElementById('admin-section').style.display = loginLeader.is_admin ? 'block' : 'none';
@@ -2403,6 +2406,30 @@ async function addDirectAttendee(memberId, name, ampm) {
 }
 
 
+
+// ── 자동 로그인 (localStorage 복원) ──────────────────────────
+(async function autoLogin() {
+  const raw = localStorage.getItem('cart_saved_user');
+  if (!raw) return;
+  let saved;
+  try { saved = JSON.parse(raw); } catch(e) { return; }
+  if (!saved?.name) return;
+
+  document.getElementById('inp-name').value = saved.name;
+
+  if (saved.type === 'member') {
+    const { data: member } = await db.from('members').select('*').eq('name', saved.name).eq('active', true).maybeSingle();
+    if (member) {
+      S.user = { type: 'member', id: member.id, name: member.name };
+      document.getElementById('m-name-hdr').textContent = member.name;
+      showScreen('member');
+      memberShowList();
+    } else {
+      localStorage.removeItem('cart_saved_user');
+    }
+  }
+  // 인도자는 이름만 채워두고 비밀번호 입력 대기
+})();
 </script>
 </body>
 </html>
