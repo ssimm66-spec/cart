@@ -653,7 +653,11 @@ async function memberShowList() {
         <div class="ev-banner ${reg ? 'selected' : ''}" onclick="memberPickEv('${ev.id}')">
           <h3>📅 ${fmtDate(ev.date)} ${ev.title ? '· ' + ev.title : ''}</h3>
           <p>🕐 ${ev.start_time} ~ ${ev.end_time} &nbsp;|&nbsp; 📍 ${locs}</p>
-          ${reg ? `<p style="margin-top:6px;font-size:12px;background:rgba(255,255,255,0.2);border-radius:6px;padding:4px 8px;display:inline-block">✅ 신청완료 · ${(reg.time_slots||[]).join(', ')}</p>` : '<p style="margin-top:6px;font-size:12px;opacity:0.7">탭해서 신청하기 →</p>'}
+          ${reg
+            ? `<p style="margin-top:6px;font-size:12px;background:rgba(255,255,255,0.2);border-radius:6px;padding:4px 8px;display:inline-block">✅ 신청완료 · ${(reg.time_slots||[]).join(', ')}</p>`
+            : ev.title === '장날 전시대'
+              ? '<p style="margin-top:6px;font-size:12px;opacity:0.7">오전 / 오후 선택하기 →</p>'
+              : '<p style="margin-top:6px;font-size:12px;opacity:0.7">탭해서 바로 신청 →</p>'}
         </div>`;
     }).join('')}`;
 }
@@ -664,57 +668,72 @@ async function memberPickEv(evId) {
 
   const { data: ev } = await db.from('events').select('*').eq('id', evId).maybeSingle();
   S.mSelEv = ev;
-
-  // 기존 신청 확인
-  const { data: reg } = await db.from('registrations').select('*').eq('event_id', evId).eq('member_id', S.user.id).maybeSingle();
+  const { data: reg } = await db.from('registrations').select('*')
+    .eq('event_id', evId).eq('member_id', S.user.id).maybeSingle();
   S.mExistReg = reg;
-  S.mSelSlots = reg ? [...(reg.time_slots || [])] : [];
-
-  // 전시대 신청자 현황 (slot별 카운트)
-  const { data: allRegs } = await db.from('registrations').select('time_slots').eq('event_id', evId);
-  const slotCount = {};
-  (allRegs || []).forEach(r => {
-    (r.time_slots || []).forEach(s => { slotCount[s] = (slotCount[s] || 0) + 1; });
-  });
-
-  const hourSlots = getHourSlots(ev.start_time, ev.end_time);
-  const locs = ev.locations || [];
-  const maxPerSlot = locs.length * ev.group_size * 10; // 여유있게
 
   const lbl = (ev.locations || []).join(', ');
-  el.innerHTML = `
-    <button class="back-btn" onclick="memberShowList()">← 전시대 목록</button>
+  const evBanner = `
     <div class="ev-banner" style="cursor:default;margin-bottom:14px">
       <h3>📅 ${fmtDate(ev.date)} ${ev.title ? '· ' + ev.title : ''}</h3>
-      <p>🕐 ${ev.start_time} ~ ${ev.end_time} &nbsp;|&nbsp; 📍 ${lbl}</p>
-    </div>
-    <div class="sec-title">참여 가능한 시간을 선택하세요 (복수 선택 가능)</div>
-    <div id="slot-btns">
-      ${hourSlots.map(sl => {
-        const label = `${sl.start} ~ ${sl.end}`;
-        const cnt = slotCount[label] || 0;
-        const isSel = S.mSelSlots.includes(label);
-        return `<button class="time-slot-btn ${isSel ? 'selected' : ''}" onclick="toggleSlot('${label}', this)">
-          ${label} <span class="slot-count">${cnt}명 신청</span>
-        </button>`;
-      }).join('')}
-    </div>
-    <div id="slot-err" class="err"></div>
-    <button class="btn btn-primary mt-12" onclick="submitReg('${evId}')">
-      ${reg ? '신청 수정하기' : '신청하기'}
-    </button>
-    ${reg ? `<button class="btn btn-danger mt-8" onclick="cancelReg('${evId}','${reg.id}')">신청 취소</button>` : ''}`;
+      <p>📍 ${lbl}</p>
+    </div>`;
+
+  if (ev.title === '장날 전시대') {
+    // 오전/오후 선택
+    const amSel = reg && (reg.time_slots||[]).some(s => s.includes('09:15'));
+    const pmSel = reg && (reg.time_slots||[]).some(s => s.includes('12:00'));
+    el.innerHTML = `
+      <button class="back-btn" onclick="memberShowList()">← 전시대 목록</button>
+      ${evBanner}
+      ${reg ? `<div style="background:#e8f5e9;border-radius:10px;padding:11px 14px;margin-bottom:14px;font-size:14px;display:flex;align-items:center;justify-content:space-between">
+        <span>✅ <b>${amSel ? '오전' : '오후'}</b> 신청완료</span>
+        <button class="btn btn-danger btn-sm" onclick="cancelReg('${evId}','${reg.id}')">취소</button>
+      </div>` : ''}
+      <div class="sec-title">참여 가능한 시간을 선택하세요</div>
+      <div style="display:flex;gap:10px;margin-top:8px">
+        <button class="time-slot-btn ${amSel?'selected':''}" onclick="registerJangnal('${evId}','am')"
+          style="flex:1;font-size:15px;padding:18px 10px;line-height:1.6">
+          오전<br><span style="font-size:12px;font-weight:400">09:15 ~ 12:00</span>
+        </button>
+        <button class="time-slot-btn ${pmSel?'selected':''}" onclick="registerJangnal('${evId}','pm')"
+          style="flex:1;font-size:15px;padding:18px 10px;line-height:1.6">
+          오후<br><span style="font-size:12px;font-weight:400">12:00 ~ 16:00</span>
+        </button>
+      </div>`;
+  } else {
+    // 즉시 신청
+    if (!reg) {
+      const { data: newReg } = await db.from('registrations').insert({
+        event_id: evId, member_id: S.user.id, member_name: S.user.name,
+        time_slots: [`${ev.start_time} ~ ${ev.end_time}`]
+      }).select().maybeSingle();
+      S.mExistReg = newReg;
+    }
+    el.innerHTML = `
+      <button class="back-btn" onclick="memberShowList()">← 전시대 목록</button>
+      ${evBanner}
+      <div class="reg-status">
+        <div class="reg-icon">✅</div>
+        <div class="rs-info">
+          <div class="rs-name">신청이 완료됐습니다!</div>
+          <div class="rs-time">🕐 ${ev.start_time} ~ ${ev.end_time}</div>
+        </div>
+        <button class="btn btn-danger mt-8" onclick="cancelReg('${evId}','${S.mExistReg.id}')">신청 취소</button>
+      </div>`;
+  }
 }
 
-function toggleSlot(label, btn) {
-  const idx = S.mSelSlots.indexOf(label);
-  if (idx >= 0) {
-    S.mSelSlots.splice(idx, 1);
-    btn.classList.remove('selected');
+async function registerJangnal(evId, ampm) {
+  const slot = ampm === 'am' ? '09:15 ~ 12:00' : '12:00 ~ 16:00';
+  if (S.mExistReg) {
+    await db.from('registrations').update({ time_slots: [slot] }).eq('id', S.mExistReg.id);
   } else {
-    S.mSelSlots.push(label);
-    btn.classList.add('selected');
+    await db.from('registrations').insert({
+      event_id: evId, member_id: S.user.id, member_name: S.user.name, time_slots: [slot]
+    });
   }
+  memberPickEv(evId);
 }
 
 async function submitReg(evId) {
@@ -1088,15 +1107,19 @@ function loadPairsLocal() {
 
 function renderPool() {
   const inPair = new Set(S_pairs.flatMap(p => p.names));
+  const isJangnal = S.selEv && S.selEv.title === '장날 전시대';
   document.getElementById('reg-pool').innerHTML = S.regs.length
     ? S.regs.map(r => {
         const isPaired = inPair.has(r.member_name);
         const isSel    = S_selPair.has(r.member_name);
         const nm = r.member_name.replace(/'/g,"\\'");
+        const timeBadge = isJangnal && r.time_slots?.length
+          ? `<span style="font-size:10px;background:${r.time_slots[0].includes('09:15')?'#fff3e0':'#e3f2fd'};color:#555;border-radius:4px;padding:1px 4px;margin-left:3px">${r.time_slots[0].includes('09:15')?'오전':'오후'}</span>`
+          : '';
         return `<div class="chip ${isPaired?'done':''} ${isSel?'selected':''}"
           onclick="tapForPair('${nm}')"
           title="${(r.time_slots||[]).join(', ')||'시간 미선택'}">
-          ${r.member_name}${isPaired?' ✓':''}
+          ${r.member_name}${timeBadge}${isPaired?' ✓':''}
           <span onclick="event.stopPropagation();deleteFromPool('${nm}')" style="margin-left:6px;color:#e53935;font-size:11px;opacity:0.8">✕</span>
         </div>`;
       }).join('')
@@ -1852,8 +1875,8 @@ function selectJnMonth(key) {
   const [y, m] = key.split('-').map(Number);
   const dates = JANGNAL_DAYS.map(d => `${key}-${String(d).padStart(2,'0')}`);
   document.getElementById('jn-preview').innerHTML =
-    `<b>${y}년 ${m}월 장날 ${JANGNAL_DAYS.length}일 × 2세션 = 최대 ${JANGNAL_DAYS.length*2}개</b><br>` +
-    JANGNAL_DAYS.map(d => `· ${y}년 ${m}월 ${d}일 — 오전 09:15~12:00 / 오후 12:00~16:00`).join('<br>');
+    `<b>${y}년 ${m}월 장날 ${JANGNAL_DAYS.length}개 생성 예정</b><br>` +
+    JANGNAL_DAYS.map(d => `· ${y}년 ${m}월 ${d}일 — 09:15~16:00 (신청 시 오전/오후 선택)`).join('<br>');
 }
 
 async function createJangnalBulk() {
@@ -1871,16 +1894,15 @@ async function createJangnalBulk() {
   const rows = [];
   dates.forEach(date => {
     if (!existSet.has(`${date}_09:15`))
-      rows.push({ date, title:'장날 전시대', locations:[loc], start_time:'09:15', end_time:'12:00', interval_minutes:15, group_size:2, is_active:true });
-    if (!existSet.has(`${date}_12:00`))
-      rows.push({ date, title:'장날 전시대', locations:[loc], start_time:'12:00', end_time:'16:00', interval_minutes:15, group_size:2, is_active:true });
+      rows.push({ date, title:'장날 전시대', locations:[loc], start_time:'09:15', end_time:'16:00', interval_minutes:15, group_size:2, is_active:true });
   });
 
   if (!rows.length) { errEl.textContent = `${y}년 ${m}월 장날 전시대가 이미 모두 있습니다.`; return; }
   const { error } = await db.from('events').insert(rows);
   if (error) { errEl.textContent = '오류: ' + error.message; return; }
   closeModal('jangnal-modal');
-  alert(`✅ ${y}년 ${m}월 장날 전시대 ${rows.length}개 생성 완료!\n(이미 있던 ${JANGNAL_DAYS.length*2 - rows.length}개는 건너뜀)`);
+  const skipped = JANGNAL_DAYS.length - rows.length;
+  alert(`✅ ${y}년 ${m}월 장날 전시대 ${rows.length}개 생성 완료!${skipped > 0 ? `\n(이미 있던 ${skipped}개는 건너뜀)` : ''}`);
   loadJsdTab();
 }
 
