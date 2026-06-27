@@ -861,7 +861,10 @@ async function loadMembersTab() {
   document.getElementById('leaders-list').innerHTML = leaders?.map(l => `
     <div class="m-item">
       <span style="font-size:14px">${l.is_admin ? '🔐' : '👑'} ${l.name}${l.is_admin ? ' <span style="font-size:11px;color:#e53935">관리자</span>' : ''}</span>
-      <div style="display:flex;gap:6px">
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-outline btn-sm" onclick="toggleAdmin('${l.id}',${!!l.is_admin},'${l.name.replace(/'/g,"\\'")}')">
+          ${l.is_admin ? '관리자 해제' : '관리자 지정'}
+        </button>
         <button class="btn btn-outline btn-sm" onclick="showResetPwModal('${l.id}','${l.name.replace(/'/g,"\\'")}')">비번초기화</button>
         <button class="btn btn-danger btn-sm" onclick="deleteLeader('${l.id}')" ${l.id===S.user.id?'disabled':''}>삭제</button>
       </div>
@@ -938,6 +941,13 @@ async function doResetPw() {
   if (error) { errEl.textContent = '오류: ' + error.message; return; }
   closeModal('reset-pw-modal');
   alert('비밀번호가 초기화됐습니다.');
+}
+
+async function toggleAdmin(id, current, name) {
+  const action = current ? `"${name}"님의 관리자 권한을 해제할까요?` : `"${name}"님을 관리자로 지정할까요?`;
+  if (!confirm(action)) return;
+  await db.from('leaders').update({ is_admin: !current }).eq('id', id);
+  loadMembersTab();
 }
 
 async function addLeader() {
