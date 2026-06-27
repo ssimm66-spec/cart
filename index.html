@@ -262,10 +262,10 @@ textarea { resize: vertical; min-height: 70px; }
       <div class="sec-title" style="margin:0 0 10px">전시대 만들기</div>
       <div style="display:flex;flex-direction:column;gap:8px">
         <button class="btn btn-outline" onclick="openJangnalModal()" style="font-size:13px;padding:11px 14px;text-align:left">
-          🗓️ 장날 전시대 일괄 생성 <span style="font-size:11px;color:#888;float:right">오전+오후 · 2일·7일</span>
+          🗓️ 장날 전시대 일괄 생성 <span style="font-size:11px;color:#888;float:right">오전+오후 · 월 단위</span>
         </button>
         <button class="btn btn-outline" onclick="openEvFromTemplate('thu')" style="font-size:13px;padding:11px 14px;text-align:left">
-          🌙 목요일 저녁 전시대 <span style="font-size:11px;color:#888;float:right">매주 15:15~20:15</span>
+          🌙 목요일 저녁 전시대 <span style="font-size:11px;color:#888;float:right">매주 18:15~20:15</span>
         </button>
         <button class="btn btn-outline" onclick="openEvFromTemplate('sat')" style="font-size:13px;padding:11px 14px;text-align:left">
           🌅 토요일 오후 전시대 <span id="sat-time-label" style="font-size:11px;color:#888;float:right">매주 18:15~20:15</span>
@@ -480,18 +480,14 @@ textarea { resize: vertical; min-height: 70px; }
       <h3>🗓️ 장날 전시대 일괄 생성</h3>
       <button class="modal-close" onclick="closeModal('jangnal-modal')">✕</button>
     </div>
-    <p style="font-size:13px;color:#666;margin-bottom:14px">매달 2일·7일 오전(09:15~12:00) + 오후(12:00~16:00)를 한꺼번에 만듭니다. 이미 있는 날짜는 건너뜁니다.</p>
+    <p style="font-size:13px;color:#666;margin-bottom:14px">매달 2·7·12·17·22·27일 오전(09:15~12:00) + 오후(12:00~16:00)를 한꺼번에 만듭니다. 이미 있는 날짜는 건너뜁니다.</p>
     <div class="form-group">
       <label>장소</label>
       <input type="text" id="jn-locs" placeholder="전시대 A" value="전시대 A">
     </div>
     <div class="form-group">
-      <label>몇 개월치 생성?</label>
-      <div style="display:flex;gap:8px">
-        <button id="jn-m-3"  onclick="setJnMonths(3)"  class="btn btn-outline btn-sm" style="flex:1">3개월</button>
-        <button id="jn-m-6"  onclick="setJnMonths(6)"  class="btn btn-primary btn-sm" style="flex:1">6개월</button>
-        <button id="jn-m-12" onclick="setJnMonths(12)" class="btn btn-outline btn-sm" style="flex:1">12개월</button>
-      </div>
+      <label>생성할 월 선택</label>
+      <div id="jn-month-btns" style="display:flex;flex-wrap:wrap;gap:6px"></div>
     </div>
     <div id="jn-preview" style="font-size:12px;color:#666;background:#f8f9fa;border-radius:8px;padding:10px;margin-bottom:14px;max-height:120px;overflow-y:auto"></div>
     <div id="jn-err" class="err"></div>
@@ -1820,66 +1816,71 @@ function nextWeekday(dow) {
 
 function toDateStr(d) { return d.toISOString().split('T')[0]; }
 
-let _jnMonths = 6;
+const JANGNAL_DAYS = [2, 7, 12, 17, 22, 27];
+let _jnSelMonth = null; // 'YYYY-MM'
+
 function openJangnalModal() {
-  _jnMonths = 6;
+  const today = new Date();
+  // 현재 월부터 6개월치 버튼 생성
+  const btnWrap = document.getElementById('jn-month-btns');
+  btnWrap.innerHTML = '';
+  for (let i = 0; i < 6; i++) {
+    const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const label = `${d.getFullYear()}년 ${d.getMonth()+1}월`;
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-outline btn-sm';
+    btn.style.cssText = 'font-size:13px;padding:7px 12px';
+    btn.textContent = label;
+    btn.dataset.key = key;
+    btn.onclick = () => selectJnMonth(key);
+    btnWrap.appendChild(btn);
+  }
+  _jnSelMonth = null;
   document.getElementById('jn-locs').value = '전시대 A';
   document.getElementById('jn-err').textContent = '';
-  updateJnPreview();
+  document.getElementById('jn-preview').innerHTML = '<span style="color:#aaa">월을 선택하면 날짜가 표시됩니다.</span>';
   openModal('jangnal-modal');
 }
-function setJnMonths(n) {
-  _jnMonths = n;
-  [3, 6, 12].forEach(v => {
-    const b = document.getElementById(`jn-m-${v}`);
-    b.className = v === n ? 'btn btn-primary btn-sm' : 'btn btn-outline btn-sm';
-    b.style.flex = '1';
+
+function selectJnMonth(key) {
+  _jnSelMonth = key;
+  document.querySelectorAll('#jn-month-btns button').forEach(b => {
+    b.className = b.dataset.key === key ? 'btn btn-primary btn-sm' : 'btn btn-outline btn-sm';
+    b.style.cssText = 'font-size:13px;padding:7px 12px';
   });
-  updateJnPreview();
-}
-function getJangnalDates(months) {
-  const today = new Date(); today.setHours(0,0,0,0);
-  const dates = [];
-  for (let m = 0; m < months; m++) {
-    const base = new Date(today.getFullYear(), today.getMonth() + m, 1);
-    [2, 7].forEach(day => {
-      const d = new Date(base.getFullYear(), base.getMonth(), day);
-      if (d >= today) dates.push(toDateStr(d));
-    });
-  }
-  return dates;
-}
-function updateJnPreview() {
-  const dates = getJangnalDates(_jnMonths);
+  const [y, m] = key.split('-').map(Number);
+  const dates = JANGNAL_DAYS.map(d => `${key}-${String(d).padStart(2,'0')}`);
   document.getElementById('jn-preview').innerHTML =
-    `총 <b>${dates.length}일 × 2세션 = ${dates.length*2}개</b> 생성 예정<br>` +
-    dates.map(d => `· ${d} 오전/오후`).join('<br>');
+    `<b>${y}년 ${m}월 장날 ${JANGNAL_DAYS.length}일 × 2세션 = 최대 ${JANGNAL_DAYS.length*2}개</b><br>` +
+    JANGNAL_DAYS.map(d => `· ${y}년 ${m}월 ${d}일 — 오전 09:15~12:00 / 오후 12:00~16:00`).join('<br>');
 }
+
 async function createJangnalBulk() {
-  const loc = document.getElementById('jn-locs').value.trim() || '전시대 A';
   const errEl = document.getElementById('jn-err');
   errEl.textContent = '';
-  const dates = getJangnalDates(_jnMonths);
-  if (!dates.length) { errEl.textContent = '생성할 날짜가 없습니다.'; return; }
+  if (!_jnSelMonth) { errEl.textContent = '월을 선택해주세요.'; return; }
+  const loc = document.getElementById('jn-locs').value.trim() || '전시대 A';
+  const [y, m] = _jnSelMonth.split('-').map(Number);
+  const dates = JANGNAL_DAYS.map(d => `${_jnSelMonth}-${String(d).padStart(2,'0')}`);
 
-  // 기존 장날 이벤트 날짜 조회해서 중복 제거
   const { data: existing } = await db.from('events')
-    .select('date,title').in('date', dates).like('title', '장날%');
-  const existSet = new Set((existing||[]).map(e => `${e.date}_${e.title}`));
+    .select('date,start_time').in('date', dates).like('title', '장날%');
+  const existSet = new Set((existing||[]).map(e => `${e.date}_${e.start_time}`));
 
   const rows = [];
   dates.forEach(date => {
-    if (!existSet.has(`${date}_장날 오전`))
-      rows.push({ date, title:'장날 오전', locations:[loc], start_time:'09:15', end_time:'12:00', interval_minutes:15, group_size:2, is_active:true });
-    if (!existSet.has(`${date}_장날 오후`))
-      rows.push({ date, title:'장날 오후', locations:[loc], start_time:'12:00', end_time:'16:00', interval_minutes:15, group_size:2, is_active:true });
+    if (!existSet.has(`${date}_09:15`))
+      rows.push({ date, title:'장날 전시대', locations:[loc], start_time:'09:15', end_time:'12:00', interval_minutes:15, group_size:2, is_active:true });
+    if (!existSet.has(`${date}_12:00`))
+      rows.push({ date, title:'장날 전시대', locations:[loc], start_time:'12:00', end_time:'16:00', interval_minutes:15, group_size:2, is_active:true });
   });
 
-  if (!rows.length) { errEl.textContent = '선택한 기간의 장날 전시대가 이미 모두 있습니다.'; return; }
+  if (!rows.length) { errEl.textContent = `${y}년 ${m}월 장날 전시대가 이미 모두 있습니다.`; return; }
   const { error } = await db.from('events').insert(rows);
   if (error) { errEl.textContent = '오류: ' + error.message; return; }
   closeModal('jangnal-modal');
-  alert(`✅ ${rows.length}개 생성 완료!\n(이미 있던 ${dates.length*2 - rows.length}개는 건너뜀)`);
+  alert(`✅ ${y}년 ${m}월 장날 전시대 ${rows.length}개 생성 완료!\n(이미 있던 ${JANGNAL_DAYS.length*2 - rows.length}개는 건너뜀)`);
   loadJsdTab();
 }
 
@@ -1900,7 +1901,7 @@ function openEvFromTemplate(type) {
   if (type === 'thu') {
     document.getElementById('ev-date').value  = toDateStr(nextWeekday(4));
     document.getElementById('ev-title').value = '목요일 저녁';
-    document.getElementById('ev-start').value = '15:15';
+    document.getElementById('ev-start').value = '18:15';
     document.getElementById('ev-end').value   = '20:15';
     document.getElementById('ev-repeat-group').style.display = 'block';
     document.getElementById('ev-repeat').checked = true;
