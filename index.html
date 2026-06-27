@@ -246,15 +246,15 @@ textarea { resize: vertical; min-height: 70px; }
     <button class="btn-logout" onclick="doLogout()">로그아웃</button>
   </div>
   <div class="tabs">
-    <div class="tab active" onclick="gotoTab('jsd')">🏛️ 전시대</div>
+    <div class="tab" onclick="gotoTab('jsd')">🏛️ 전시대</div>
     <div class="tab" onclick="gotoTab('members')">👥 명단</div>
-    <div class="tab" onclick="gotoTab('assign')">📋 배정</div>
+    <div class="tab active" onclick="gotoTab('assign')">📋 배정</div>
     <div class="tab" onclick="gotoTab('output')">🖼️ 출력</div>
     <div class="tab" onclick="gotoTab('signup')">🙋 봉사신청</div>
   </div>
 
   <!-- TAB: 전시대 운영 -->
-  <div id="tab-jsd" class="tab-content active">
+  <div id="tab-jsd" class="tab-content">
     <button class="btn btn-primary mb-12" onclick="openEvModal()">+ 새 전시대 운영 만들기</button>
     <div class="sec-title">예정된 전시대 운영</div>
     <div id="jsd-upcoming"></div>
@@ -288,7 +288,7 @@ textarea { resize: vertical; min-height: 70px; }
   </div>
 
   <!-- TAB: 배정 -->
-  <div id="tab-assign" class="tab-content">
+  <div id="tab-assign" class="tab-content active">
     <div id="assign-ev-select">
       <div class="sec-title">전시대 선택</div>
       <div id="assign-ev-list"></div>
@@ -535,7 +535,7 @@ async function doLogin() {
     S.user = { type: 'leader', id: loginLeader.id, name: loginLeader.name };
     document.getElementById('l-name-hdr').textContent = loginLeader.name;
     showScreen('leader');
-    loadJsdTab();
+    gotoTab('assign');
   }
 }
 
@@ -1008,7 +1008,7 @@ function renderPairs() {
           <span class="pair-member" draggable="true"
             ondragstart="memberDragStart(event,${i},'${name}')"
             ondragend="memberDragEnd(event)">
-            ${name}
+            ${name}<span onclick="event.stopPropagation();removeMemberFromPair(${i},'${name.replace(/'/g,"\\'")}')" style="margin-left:4px;color:#e53935;font-size:12px;cursor:pointer">✕</span>
           </span>`).join('')}
       </div>
       <button onclick="removePair(${i})" style="background:none;border:none;color:#e53935;font-size:18px;cursor:pointer;padding:0 4px;flex-shrink:0">✕</button>
@@ -1526,6 +1526,14 @@ function fmtDate(d) {
 
 function getDow(d) {
   return ['일','월','화','수','목','금','토'][new Date(d).getDay()]+'요일';
+}
+
+function removeMemberFromPair(pairIdx, name) {
+  S_pairs[pairIdx].names = S_pairs[pairIdx].names.filter(n => n !== name);
+  if (S_pairs[pairIdx].names.length === 0) S_pairs.splice(pairIdx, 1);
+  savePairsLocal();
+  renderPool();
+  renderPairs();
 }
 
 async function removeMemberFromSlot(li, si, name) {
