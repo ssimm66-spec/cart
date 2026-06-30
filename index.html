@@ -617,8 +617,17 @@ async function doLogin() {
   const pwShown = document.getElementById('pw-wrap').style.display !== 'none';
 
   if (!pwShown) {
-    const { data: isLeader } = await db.rpc('leader_exists', { p_name: name });
-    if (isLeader) {
+    const { data: isLeader, error: rpcErr } = await db.rpc('leader_exists', { p_name: name });
+    if (rpcErr) {
+      // RPC 미설정(SQL 미실행) 시 기존 방식으로 폴백
+      const { data: leader } = await db.from('leaders').select('*').eq('name', name).maybeSingle();
+      if (leader) {
+        loginLeader = leader;
+        document.getElementById('pw-wrap').style.display = 'block';
+        document.getElementById('inp-pw').focus();
+        return;
+      }
+    } else if (isLeader) {
       loginLeader = { name };
       document.getElementById('pw-wrap').style.display = 'block';
       document.getElementById('inp-pw').focus();
@@ -636,13 +645,19 @@ async function doLogin() {
     errEl.textContent = '명단에 없는 이름입니다.';
   } else {
     if (!pw) { errEl.textContent = '비밀번호를 입력해주세요.'; return; }
-    const { data: leader } = await db.rpc('check_leader_login', { p_name: loginLeader.name, p_password: pw });
-    if (!leader) { errEl.textContent = '비밀번호가 틀렸습니다.'; return; }
-    S.user = { type: 'leader', id: leader.id, name: leader.name, isAdmin: !!leader.is_admin };
-    localStorage.setItem('cart_saved_user', JSON.stringify({ type: 'leader', name: leader.name }));
-    document.getElementById('l-name-hdr').textContent = leader.name;
-    document.getElementById('l-role-hdr').textContent = leader.is_admin ? '관리자' : '인도자';
-    document.getElementById('admin-section').style.display = leader.is_admin ? 'block' : 'none';
+    const { data: leader, error: rpcErr2 } = await db.rpc('check_leader_login', { p_name: loginLeader.name, p_password: pw });
+    if (rpcErr2) {
+      // RPC 미설정 시 기존 방식으로 폴백
+      if (!loginLeader.password || loginLeader.password !== pw) { errEl.textContent = '비밀번호가 틀렸습니다.'; return; }
+      S.user = { type: 'leader', id: loginLeader.id, name: loginLeader.name, isAdmin: !!loginLeader.is_admin };
+    } else {
+      if (!leader) { errEl.textContent = '비밀번호가 틀렸습니다.'; return; }
+      S.user = { type: 'leader', id: leader.id, name: leader.name, isAdmin: !!leader.is_admin };
+    }
+    localStorage.setItem('cart_saved_user', JSON.stringify({ type: 'leader', name: S.user.name }));
+    document.getElementById('l-name-hdr').textContent = S.user.name;
+    document.getElementById('l-role-hdr').textContent = S.user.isAdmin ? '관리자' : '인도자';
+    document.getElementById('admin-section').style.display = S.user.isAdmin ? 'block' : 'none';
     showScreen('leader');
     gotoTab('assign');
   }
