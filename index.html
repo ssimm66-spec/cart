@@ -617,9 +617,9 @@ async function doLogin() {
   const pwShown = document.getElementById('pw-wrap').style.display !== 'none';
 
   if (!pwShown) {
-    const { data: leader } = await db.from('leaders').select('*').eq('name', name).maybeSingle();
-    if (leader) {
-      loginLeader = leader;
+    const { data: isLeader } = await db.rpc('leader_exists', { p_name: name });
+    if (isLeader) {
+      loginLeader = { name };
       document.getElementById('pw-wrap').style.display = 'block';
       document.getElementById('inp-pw').focus();
       return;
@@ -636,12 +636,13 @@ async function doLogin() {
     errEl.textContent = '명단에 없는 이름입니다.';
   } else {
     if (!pw) { errEl.textContent = '비밀번호를 입력해주세요.'; return; }
-    if (loginLeader.password !== pw) { errEl.textContent = '비밀번호가 틀렸습니다.'; return; }
-    S.user = { type: 'leader', id: loginLeader.id, name: loginLeader.name, isAdmin: !!loginLeader.is_admin };
-    localStorage.setItem('cart_saved_user', JSON.stringify({ type: 'leader', name: loginLeader.name }));
-    document.getElementById('l-name-hdr').textContent = loginLeader.name;
-    document.getElementById('l-role-hdr').textContent = loginLeader.is_admin ? '관리자' : '인도자';
-    document.getElementById('admin-section').style.display = loginLeader.is_admin ? 'block' : 'none';
+    const { data: leader } = await db.rpc('check_leader_login', { p_name: loginLeader.name, p_password: pw });
+    if (!leader) { errEl.textContent = '비밀번호가 틀렸습니다.'; return; }
+    S.user = { type: 'leader', id: leader.id, name: leader.name, isAdmin: !!leader.is_admin };
+    localStorage.setItem('cart_saved_user', JSON.stringify({ type: 'leader', name: leader.name }));
+    document.getElementById('l-name-hdr').textContent = leader.name;
+    document.getElementById('l-role-hdr').textContent = leader.is_admin ? '관리자' : '인도자';
+    document.getElementById('admin-section').style.display = leader.is_admin ? 'block' : 'none';
     showScreen('leader');
     gotoTab('assign');
   }
@@ -1071,7 +1072,7 @@ async function loadMembersTab() {
        ${renderGroup(sisters)}`
     : '<p class="text-muted">참가자가 없습니다.</p>';
 
-  const { data: leaders } = await db.from('leaders').select('*').order('name');
+  const { data: leaders } = await db.rpc('get_all_leaders', { p_requester_id: S.user.id });
   document.getElementById('leaders-list').innerHTML = leaders?.map(l => `
     <div class="m-item">
       <span style="font-size:14px">${l.is_admin ? '🔐' : '👑'} ${l.name}${l.is_admin ? ' <span style="font-size:11px;color:#e53935">관리자</span>' : ''}</span>
@@ -1125,10 +1126,8 @@ async function doChangePw() {
   if (!current || !nw || !confirm) { errEl.textContent = '모두 입력해주세요.'; return; }
   if (nw !== confirm) { errEl.textContent = '새 비밀번호가 일치하지 않아요.'; return; }
   if (nw.length < 4)  { errEl.textContent = '비밀번호는 4자 이상으로 해주세요.'; return; }
-  const { data: me } = await db.from('leaders').select('password').eq('id', S.user.id).maybeSingle();
-  if (!me || me.password !== current) { errEl.textContent = '현재 비밀번호가 틀렸습니다.'; return; }
-  const { error } = await db.from('leaders').update({ password: nw }).eq('id', S.user.id);
-  if (error) { errEl.textContent = '오류: ' + error.message; return; }
+  const { data: ok } = await db.rpc('change_leader_password', { p_id: S.user.id, p_old_password: current, p_new_password: nw });
+  if (!ok) { errEl.textContent = '현재 비밀번호가 틀렸습니다.'; return; }
   closeModal('change-pw-modal');
   alert('비밀번호가 변경됐습니다!');
 }
@@ -1151,8 +1150,8 @@ async function doResetPw() {
   if (!nw || !confirm) { errEl.textContent = '모두 입력해주세요.'; return; }
   if (nw !== confirm)  { errEl.textContent = '비밀번호가 일치하지 않아요.'; return; }
   if (nw.length < 4)   { errEl.textContent = '비밀번호는 4자 이상으로 해주세요.'; return; }
-  const { error } = await db.from('leaders').update({ password: nw }).eq('id', _resetPwTargetId);
-  if (error) { errEl.textContent = '오류: ' + error.message; return; }
+  const { data: ok } = await db.rpc('admin_reset_leader_password', { p_requester_id: S.user.id, p_target_id: _resetPwTargetId, p_new_password: nw });
+  if (!ok) { errEl.textContent = '오류가 발생했습니다.'; return; }
   closeModal('reset-pw-modal');
   alert('비밀번호가 초기화됐습니다.');
 }
@@ -1160,7 +1159,7 @@ async function doResetPw() {
 async function toggleAdmin(id, current, name) {
   const action = current ? `"${name}"님의 관리자 권한을 해제할까요?` : `"${name}"님을 관리자로 지정할까요?`;
   if (!confirm(action)) return;
-  await db.from('leaders').update({ is_admin: !current }).eq('id', id);
+  await db.rpc('admin_toggle_leader_admin', { p_requester_id: S.user.id, p_target_id: id });
   loadMembersTab();
 }
 
@@ -1168,15 +1167,15 @@ async function addLeader() {
   const name = document.getElementById('inp-new-leader').value.trim();
   const pw   = document.getElementById('inp-new-lpw').value.trim();
   if (!name || !pw) { alert('이름과 비밀번호를 입력해주세요.'); return; }
-  const { error } = await db.from('leaders').insert({ name, password: pw });
-  if (error) { alert(error.message); return; }
+  const { data: ok } = await db.rpc('admin_add_leader', { p_requester_id: S.user.id, p_name: name, p_password: pw });
+  if (!ok) { alert('추가 실패 (권한 없음 또는 중복)'); return; }
   document.getElementById('inp-new-leader').value = '';
   document.getElementById('inp-new-lpw').value = '';
   loadMembersTab();
 }
 async function deleteLeader(id) {
   if (!confirm('인도자를 삭제할까요?')) return;
-  await db.from('leaders').delete().eq('id', id);
+  await db.rpc('admin_delete_leader', { p_requester_id: S.user.id, p_target_id: id });
   loadMembersTab();
 }
 
