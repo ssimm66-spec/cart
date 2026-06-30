@@ -772,7 +772,7 @@ function _signupEvCard(ev, myReg, allRegs, containerId, isLeader) {
     attendeeHtml = `<div class="attendee-section"><div style="font-size:12px;color:#bbb">아직 신청자가 없습니다</div></div>`;
   } else if (isJangnal) {
     const am = allRegs.filter(r => (r.time_slots||[]).some(s => s.includes('09:15')));
-    const pm = allRegs.filter(r => (r.time_slots||[]).some(s => s.includes('12:00')));
+    const pm = allRegs.filter(r => (r.time_slots||[]).some(s => s.startsWith('12:00')));
     attendeeHtml = `<div class="attendee-section">
       <div class="attendee-row"><span class="attendee-lbl">오전 ${am.length}명</span><span class="attendee-names">${am.map(r=>r.member_name).join(', ')||'—'}</span></div>
       <div class="attendee-row"><span class="attendee-lbl">오후 ${pm.length}명</span><span class="attendee-names">${pm.map(r=>r.member_name).join(', ')||'—'}</span></div>
@@ -1296,7 +1296,7 @@ function renderPool() {
     html = '<p class="text-muted" style="font-size:13px">신청자가 없습니다.</p>';
   } else if (isJangnal) {
     const amRegs = S.regs.filter(r => (r.time_slots||[]).some(s => s.includes('09:15')));
-    const pmRegs = S.regs.filter(r => (r.time_slots||[]).some(s => s.includes('12:00')));
+    const pmRegs = S.regs.filter(r => (r.time_slots||[]).some(s => s.startsWith('12:00')));
     if (amRegs.length) {
       html += `<div style="width:100%;font-size:11px;font-weight:700;color:#e65100;background:#fff3e0;padding:3px 8px;border-radius:6px;margin-bottom:5px">오전 (${amRegs.length}명)</div>`;
       html += amRegs.map(r => makeChip(r, 'am')).join('');
@@ -1703,7 +1703,7 @@ function autoMakePairs() {
   S_pairs = [];
   if (isJangnal) {
     const amNames = S.regs.filter(r => (r.time_slots||[]).some(s => s.includes('09:15')) && !inPair.has(r.member_name)).map(r => r.member_name);
-    const pmNames = S.regs.filter(r => (r.time_slots||[]).some(s => s.includes('12:00')) && !inPair.has(r.member_name)).map(r => r.member_name);
+    const pmNames = S.regs.filter(r => (r.time_slots||[]).some(s => s.startsWith('12:00')) && !inPair.has(r.member_name)).map(r => r.member_name);
     S_pairs = [...buildPairs(amNames, 'am'), ...buildPairs(pmNames, 'pm')];
   } else {
     const available = S.regs.map(r => r.member_name).filter(n => !inPair.has(n));
@@ -2121,7 +2121,7 @@ async function deleteFromPool(memberName, ampm) {
     const slotCheck = ampm === 'am' ? '09:15' : '12:00';
     const slotLabel = ampm === 'am' ? '오전' : '오후';
     if (!confirm(`${memberName}님의 ${slotLabel} 신청을 취소할까요?`)) return;
-    const newSlots = (reg.time_slots||[]).filter(s => !s.includes(slotCheck));
+    const newSlots = (reg.time_slots||[]).filter(s => !s.startsWith(slotCheck));
     if (newSlots.length === 0) {
       await db.from('registrations').delete().eq('id', reg.id);
       S.regs = S.regs.filter(r => r.id !== reg.id);
@@ -2345,7 +2345,7 @@ function renderDirectAddList() {
 
   if (isJangnal) {
     const amNames = new Set(S.regs.filter(r => (r.time_slots||[]).some(s => s.includes('09:15'))).map(r => r.member_name));
-    const pmNames = new Set(S.regs.filter(r => (r.time_slots||[]).some(s => s.includes('12:00'))).map(r => r.member_name));
+    const pmNames = new Set(S.regs.filter(r => (r.time_slots||[]).some(s => s.startsWith('12:00'))).map(r => r.member_name));
     const available = (S._membersMeta || []).filter(m => {
       if (search && !m.name.toLowerCase().includes(search)) return false;
       return !amNames.has(m.name) || !pmNames.has(m.name); // 하나라도 없으면 표시
@@ -2400,7 +2400,7 @@ async function addDirectAttendee(memberId, name, ampm) {
     const slotCheck = ampm === 'am' ? '09:15' : '12:00';
     const existingReg = S.regs.find(r => r.member_name === name || r.member_id === memberId);
     if (existingReg) {
-      if ((existingReg.time_slots||[]).some(s => s.includes(slotCheck))) return; // 이미 있음
+      if ((existingReg.time_slots||[]).some(s => s.startsWith(slotCheck))) return; // 이미 있음
       const updatedSlots = [...(existingReg.time_slots||[]), newSlot];
       const { error } = await db.from('registrations').update({ time_slots: updatedSlots }).eq('id', existingReg.id);
       if (error) { alert('추가 실패: ' + error.message); return; }
