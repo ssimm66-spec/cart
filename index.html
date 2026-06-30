@@ -2349,7 +2349,7 @@ function renderDirectAddList() {
     const available = (S._membersMeta || []).filter(m => {
       if (search && !m.name.toLowerCase().includes(search)) return false;
       return !amNames.has(m.name) || !pmNames.has(m.name); // 하나라도 없으면 표시
-    });
+    }).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
     if (!available.length) {
       el.innerHTML = '<p style="color:#aaa;font-size:13px;text-align:center;padding:20px 0">추가할 수 있는 분이 없습니다</p>';
       return;
@@ -2375,7 +2375,7 @@ function renderDirectAddList() {
     if (registeredIds.has(m.id) || registeredNames.has(m.name)) return false;
     if (search && !m.name.toLowerCase().includes(search)) return false;
     return true;
-  });
+  }).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
   if (!available.length) {
     el.innerHTML = '<p style="color:#aaa;font-size:13px;text-align:center;padding:20px 0">추가할 수 있는 분이 없습니다</p>';
     return;
