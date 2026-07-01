@@ -2092,9 +2092,23 @@ function toM(t) { const [h,m] = t.split(':').map(Number); return h*60+m; }
 function toT(m) { return `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`; }
 
 function getSlots(start, end, interval) {
-  const slots = [], endM = toM(end);
-  let cur = toM(start);
-  while (cur < endM) { const nxt = Math.min(cur+interval, endM); slots.push({start:toT(cur),end:toT(nxt)}); cur=nxt; }
+  const startM = toM(start), endM = toM(end);
+  const totalMins = endM - startM;
+  if (totalMins <= 0) return [];
+  const numSlots = Math.ceil(totalMins / interval);
+  const excess = numSlots * interval - totalMins; // surplus mins if all slots were full
+  const shortInterval = interval - 5;
+  // distribute short slots at the end only if shortInterval is still reasonable (≥5 min)
+  // and excess is a clean multiple of 5
+  const nShort = (excess > 0 && shortInterval >= 5 && excess % 5 === 0) ? excess / 5 : 0;
+  const nFull = numSlots - nShort;
+  const slots = [];
+  let cur = startM;
+  for (let i = 0; i < numSlots; i++) {
+    const dur = i < nFull ? interval : shortInterval;
+    slots.push({ start: toT(cur), end: toT(cur + dur) });
+    cur += dur;
+  }
   return slots;
 }
 
