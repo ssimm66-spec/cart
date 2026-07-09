@@ -1436,12 +1436,21 @@ function renderPairs() {
     S_pairs.forEach((p, i) => { html += pairCard(p, i, i + 1, i===0, i===n-1); });
   }
 
-  html += `<div id="pair-unassign-zone"
-    ondragover="pairCardDragOver(event,-1)"
-    ondragleave="pairCardDragLeave(-1)"
-    ondrop="pairCardDrop(event,-1)"
-    style="border:2px dashed #ddd;border-radius:8px;padding:10px;text-align:center;color:#bbb;font-size:12px;margin-top:4px">
-    여기에 놓으면 짝 해제
+  html += `<div style="display:flex;gap:6px;margin-top:4px">
+    <div id="pair-unassign-zone"
+      ondragover="pairCardDragOver(event,-1)"
+      ondragleave="pairCardDragLeave(-1)"
+      ondrop="pairCardDrop(event,-1)"
+      style="flex:1;border:2px dashed #ddd;border-radius:8px;padding:10px;text-align:center;color:#bbb;font-size:12px">
+      여기에 놓으면 짝 해제
+    </div>
+    <div id="pair-newpair-zone"
+      ondragover="pairCardDragOver(event,-2)"
+      ondragleave="pairCardDragLeave(-2)"
+      ondrop="pairCardDrop(event,-2)"
+      style="flex:1;border:2px dashed #a5d6a7;border-radius:8px;padding:10px;text-align:center;color:#a5d6a7;font-size:12px">
+      ✚ 여기에 놓으면 새 짝 생성
+    </div>
   </div>`;
   el.innerHTML = html;
 }
@@ -1566,7 +1575,8 @@ function _memberTouchMove(e) {
   const el = document.elementFromPoint(touch.clientX, touch.clientY);
   clone.style.visibility = '';
   const zone = document.getElementById('pair-unassign-zone');
-  const card = el?.closest('.pair-card') || (zone?.contains(el) ? zone : null);
+  const newPairZone = document.getElementById('pair-newpair-zone');
+  const card = el?.closest('.pair-card') || (zone?.contains(el) ? zone : null) || (newPairZone?.contains(el) ? newPairZone : null);
   if (_memberTouch.lastEl && _memberTouch.lastEl !== card) _memberTouch.lastEl.classList.remove('drag-over');
   if (card) {
     card.classList.add('drag-over');
@@ -1587,6 +1597,8 @@ function _memberTouchEnd(e) {
     lastEl.classList.remove('drag-over');
     if (lastEl.id === 'pair-unassign-zone') {
       applyMemberDrop(fromPairIdx, name, -1);
+    } else if (lastEl.id === 'pair-newpair-zone') {
+      applyMemberDrop(fromPairIdx, name, -2);
     } else {
       const toIdx = parseInt(lastEl.id.replace('pair-card-', ''));
       if (!isNaN(toIdx)) applyMemberDrop(fromPairIdx, name, toIdx);
@@ -1598,8 +1610,10 @@ function pairCardDragOver(e, i) {
   e.preventDefault();
   const el = i === -1
     ? document.getElementById('pair-unassign-zone')
+    : i === -2
+    ? document.getElementById('pair-newpair-zone')
     : document.getElementById(`pair-card-${i}`);
-  if (pairDragIdx !== null && i !== -1 && i !== pairDragIdx) {
+  if (pairDragIdx !== null && i !== -1 && i !== -2 && i !== pairDragIdx) {
     document.querySelectorAll('.pair-card.touch-drag-over').forEach(c => c.classList.remove('touch-drag-over'));
     el?.classList.add('touch-drag-over');
   } else if (memberDrag) {
@@ -1609,6 +1623,8 @@ function pairCardDragOver(e, i) {
 function pairCardDragLeave(i) {
   const el = i === -1
     ? document.getElementById('pair-unassign-zone')
+    : i === -2
+    ? document.getElementById('pair-newpair-zone')
     : document.getElementById(`pair-card-${i}`);
   el?.classList.remove('drag-over');
   el?.classList.remove('touch-drag-over');
@@ -1617,6 +1633,11 @@ function applyMemberDrop(fromPairIdx, name, toPairIdx) {
   if (toPairIdx === -1) {
     S_pairs[fromPairIdx].names = S_pairs[fromPairIdx].names.filter(n => n !== name);
     if (S_pairs[fromPairIdx].names.length === 0) S_pairs.splice(fromPairIdx, 1);
+  } else if (toPairIdx === -2) {
+    const ampm = S_pairs[fromPairIdx].ampm;
+    S_pairs[fromPairIdx].names = S_pairs[fromPairIdx].names.filter(n => n !== name);
+    if (S_pairs[fromPairIdx].names.length === 0) S_pairs.splice(fromPairIdx, 1);
+    S_pairs.push({ names: [name], ...(ampm ? { ampm } : {}) });
   } else {
     if (fromPairIdx === toPairIdx) return;
     S_pairs[fromPairIdx].names = S_pairs[fromPairIdx].names.filter(n => n !== name);
@@ -1632,7 +1653,7 @@ function applyMemberDrop(fromPairIdx, name, toPairIdx) {
 }
 function pairCardDrop(e, toPairIdx) {
   e.preventDefault();
-  if (pairDragIdx !== null && toPairIdx !== -1) {
+  if (pairDragIdx !== null && toPairIdx !== -1 && toPairIdx !== -2) {
     const fromIdx = pairDragIdx;
     pairDragIdx = null;
     document.querySelectorAll('.pair-card.pair-dragging,.pair-card.touch-drag-over').forEach(el => {
@@ -1644,7 +1665,7 @@ function pairCardDrop(e, toPairIdx) {
   } else if (memberDrag) {
     const { fromPairIdx, name } = memberDrag;
     memberDrag = null;
-    document.querySelectorAll('.pair-card.drag-over,#pair-unassign-zone.drag-over').forEach(el => el.classList.remove('drag-over'));
+    document.querySelectorAll('.pair-card.drag-over,#pair-unassign-zone.drag-over,#pair-newpair-zone.drag-over').forEach(el => el.classList.remove('drag-over'));
     applyMemberDrop(fromPairIdx, name, toPairIdx);
   }
 }
