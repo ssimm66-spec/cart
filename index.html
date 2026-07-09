@@ -1513,8 +1513,7 @@ function _pairTouchEnd(e) {
     lastEl.classList.remove('touch-drag-over');
     const toIdx = parseInt(lastEl.id.replace('pair-card-', ''));
     if (!isNaN(toIdx) && toIdx !== idx) {
-      const dragged = S_pairs.splice(idx, 1)[0];
-      S_pairs.splice(toIdx > idx ? toIdx - 1 : toIdx, 0, dragged);
+      [S_pairs[idx], S_pairs[toIdx]] = [S_pairs[toIdx], S_pairs[idx]];
       savePairsLocal(); renderPairs();
     }
   }
@@ -1640,8 +1639,7 @@ function pairCardDrop(e, toPairIdx) {
       el.classList.remove('pair-dragging'); el.classList.remove('touch-drag-over');
     });
     if (fromIdx === toPairIdx) return;
-    const dragged = S_pairs.splice(fromIdx, 1)[0];
-    S_pairs.splice(toPairIdx > fromIdx ? toPairIdx - 1 : toPairIdx, 0, dragged);
+    [S_pairs[fromIdx], S_pairs[toPairIdx]] = [S_pairs[toPairIdx], S_pairs[fromIdx]];
     savePairsLocal(); renderPairs();
   } else if (memberDrag) {
     const { fromPairIdx, name } = memberDrag;
