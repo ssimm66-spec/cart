@@ -1400,7 +1400,7 @@ function renderPairs() {
             ontouchstart="memberTouchStart(event,${i},'${name.replace(/'/g,"\\'")}')"
             ondragstart="memberDragStart(event,${i},'${name.replace(/'/g,"\\'")}')"
             ondragend="memberDragEnd(event)">
-            ${name}<span onclick="event.stopPropagation();removeMemberFromPair(${i},'${name.replace(/'/g,"\\'")}')" style="margin-left:4px;color:#e53935;font-size:12px;cursor:pointer">✕</span>
+            ${name}<span onclick="event.stopPropagation();removeMemberFromPair(${i},'${name.replace(/'/g,"\\'")}')" ontouchstart="event.stopPropagation()" ontouchend="event.preventDefault();removeMemberFromPair(${i},'${name.replace(/'/g,"\\'")}')" style="margin-left:4px;color:#e53935;font-size:12px;cursor:pointer;padding:2px 4px">✕</span>
           </span>`).join('')}
       </div>
       <button onclick="removePair(${i})" style="background:none;border:none;color:#e53935;font-size:18px;cursor:pointer;padding:0 4px;flex-shrink:0;touch-action:manipulation">✕</button>
