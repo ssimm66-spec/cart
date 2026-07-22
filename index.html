@@ -2095,10 +2095,23 @@ function backToOutSelect() { loadOutEvSelect(); }
 async function saveImage() {
   const el = document.getElementById('out-table-wrap');
   const canvas = await html2canvas(el, { backgroundColor: '#ffffff', scale: 2 });
-  const a = document.createElement('a');
-  a.download = `전시대배정_${S.selEv?.date||'output'}.png`;
-  a.href = canvas.toDataURL('image/png');
-  a.click();
+  const filename = `전시대배정_${S.selEv?.date||'output'}.png`;
+  canvas.toBlob(async (blob) => {
+    // iOS / Android: Web Share API로 공유 시트 열기 (사진 앱 저장 가능)
+    if (navigator.canShare) {
+      const file = new File([blob], filename, { type: 'image/png' });
+      if (navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file] }); return; } catch (e) { if (e.name === 'AbortError') return; }
+      }
+    }
+    // 데스크톱 / 기타: 직접 다운로드
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.download = filename;
+    a.href = url;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, 'image/png');
 }
 
 // ── LEADER SIGNUP ─────────────────────────────────────────
