@@ -2045,12 +2045,14 @@ async function loadOutput(evId) {
 
   const isJangnal = ev.title === '장날 전시대';
   let slots;
-  let amCount = 0;
+  let amCount = 0, hasAmData = true, hasPmData = false;
   if (isJangnal) {
     const amSl = getSlots('09:15', '12:00', ev.interval_minutes || 20);
     const pmSl = getSlots('12:00', '16:00', ev.interval_minutes || 20);
     amCount = amSl.length;
     slots = [...amSl, ...pmSl];
+    hasAmData = amSl.some((_, si) => locs.some((_, li) => (am[`${li}_${si}`]||[]).length > 0));
+    hasPmData = pmSl.some((_, si) => locs.some((_, li) => (am[`${li}_${amCount+si}`]||[]).length > 0));
   } else {
     slots = getSlots(ev.start_time, ev.end_time, ev.interval_minutes);
   }
@@ -2059,7 +2061,9 @@ async function loadOutput(evId) {
   const th  = locs.map(l => `<th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">${l}</th>`).join('');
   const rows = slots.map((sl, si) => {
     const isAmRow = isJangnal && si < amCount;
-    const dividerRow = isJangnal && si === amCount
+    if (isJangnal && isAmRow && !hasAmData) return '';
+    if (isJangnal && !isAmRow && !hasPmData) return '';
+    const dividerRow = isJangnal && si === amCount && hasAmData && hasPmData
       ? `<tr><td colspan="${locs.length+1}" style="background:#e3f2fd;color:#1565c0;padding:5px 10px;font-size:11px;font-weight:700;border:1px solid #90caf9;">오후 12:00~16:00</td></tr>`
       : '';
     const tds = locs.map((_,li) => {
@@ -2072,8 +2076,11 @@ async function loadOutput(evId) {
     </tr>`;
   }).join('');
 
-  const amDivider = isJangnal
+  // 오전 헤더: 오전 데이터 있을 때. 오전 없고 오후만 있을 때는 오후 헤더를 맨 위에.
+  const amDivider = isJangnal && hasAmData
     ? `<tr><td colspan="${locs.length+1}" style="background:#fff3e0;color:#e65100;padding:5px 10px;font-size:11px;font-weight:700;border:1px solid #ffcc80;">오전 09:15~12:00</td></tr>`
+    : isJangnal && hasPmData
+    ? `<tr><td colspan="${locs.length+1}" style="background:#e3f2fd;color:#1565c0;padding:5px 10px;font-size:11px;font-weight:700;border:1px solid #90caf9;">오후 12:00~16:00</td></tr>`
     : '';
 
   document.getElementById('out-table-wrap').innerHTML = `
