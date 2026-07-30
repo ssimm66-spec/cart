@@ -2019,7 +2019,8 @@ function _slotRow(li, si, sl, mems, showPairNum, pairNum) {
 async function loadOutEvSelect() {
   document.getElementById('out-ev-select').style.display = 'block';
   document.getElementById('out-body').style.display = 'none';
-  const { data: evs } = await db.from('events').select('*').eq('is_active', true).order('date', { ascending: false });
+  const today = new Date().toISOString().split('T')[0];
+  const { data: evs } = await db.from('events').select('*').eq('is_active', true).gte('date', today).order('date');
   document.getElementById('out-ev-list').innerHTML = evs?.length
     ? evs.map(e => {
         const th = evColorTheme(e);
