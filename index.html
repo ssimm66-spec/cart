@@ -1252,6 +1252,7 @@ async function loadAssignForEv(evId) {
   document.getElementById('reg-cnt').textContent = `(${S.regs.length}명)`;
   S_selPair.clear();
   loadPairsLocal();
+  loadLocSplit();
   renderPool();
   renderPairs();
   renderLocChips();
@@ -1263,9 +1264,53 @@ function backToEvSelect() { loadAssignEvSelect(); }
 // ── PAIRING ───────────────────────────────────────────────
 let S_pairs    = [];   // [{ names: ['A','B'] }, ...]
 let S_selPair  = new Set(); // 짝 만들기용 선택
+let S_locSplit = []; // [3,4] — 장소별 팀 수 (순차 분배)
 
-function pairsKey(evId) { return `pairs_${evId}`; }
+function pairsKey(evId)    { return `pairs_${evId}`; }
+function locSplitKey(evId) { return `cart_locsplit_${evId}`; }
+
 function savePairsLocal() { localStorage.setItem(pairsKey(S.selEv.id), JSON.stringify(S_pairs)); }
+function saveLocSplit()    { localStorage.setItem(locSplitKey(S.selEv.id), JSON.stringify(S_locSplit)); }
+
+function defaultLocSplit(numLocs, n) {
+  return Array.from({length: numLocs}, (_, li) => li < n % numLocs ? Math.ceil(n/numLocs) : Math.floor(n/numLocs));
+}
+function loadLocSplit() {
+  const locs = S.selEv?.locations || [];
+  if (locs.length <= 1) { S_locSplit = [S_pairs.length]; return; }
+  const raw = localStorage.getItem(locSplitKey(S.selEv?.id));
+  if (raw) {
+    try {
+      const saved = JSON.parse(raw);
+      if (saved.length === locs.length && saved.reduce((a,b)=>a+b,0) === S_pairs.length) {
+        S_locSplit = saved; return;
+      }
+    } catch(e) {}
+  }
+  S_locSplit = defaultLocSplit(locs.length, S_pairs.length);
+}
+function getLocPairs(li) {
+  const start = S_locSplit.slice(0, li).reduce((a,b)=>a+b, 0);
+  return S_pairs.slice(start, start + (S_locSplit[li]||0));
+}
+function getLocInterval(li) {
+  const n = S_locSplit[li] || 0;
+  const r = calcAutoInterval(n, 1);
+  return r.interval || 20;
+}
+function adjustLocSplit(li, delta) {
+  const locs = S.selEv?.locations || [];
+  if (locs.length < 2) return;
+  const li2 = li === 0 ? 1 : 0; // 2장소 기준; 3장소 이상은 인접 조정
+  const newA = S_locSplit[li] + delta;
+  const newB = S_locSplit[li2] - delta;
+  if (newA < 1 || newB < 1) return;
+  S_locSplit[li] = newA;
+  S_locSplit[li2] = newB;
+  saveLocSplit();
+  renderPairs();
+}
+
 function loadPairsLocal() {
   const raw = localStorage.getItem(pairsKey(S.selEv.id));
   S_pairs = raw ? JSON.parse(raw) : [];
@@ -1426,11 +1471,24 @@ function renderPairs() {
       otherEntries.forEach(({p, i}, li) => { html += pairCard(p, i, li + 1, li===0, li===otherEntries.length-1); });
     }
   } else if (locs.length > 1) {
+    if (S_locSplit.length !== locs.length || S_locSplit.reduce((a,b)=>a+b,0) !== n) {
+      S_locSplit = defaultLocSplit(locs.length, n);
+    }
+    let globalOffset = 0;
     locs.forEach((loc, li) => {
-      const locEntries = S_pairs.map((p, i) => ({p, i})).filter(({i}) => i % locs.length === li);
-      if (!locEntries.length) return;
-      html += `<div style="font-size:12px;font-weight:700;color:#2c5f2e;margin:10px 0 4px;padding-left:4px">📍 ${loc}</div>`;
+      const cnt = S_locSplit[li] || 0;
+      const locEntries = S_pairs.slice(globalOffset, globalOffset + cnt).map((p, localIdx) => ({p, i: globalOffset + localIdx}));
+      const interval = getLocInterval(li);
+      const canDec = S_locSplit[li] > 1;
+      const canInc = li < locs.length - 1 ? S_locSplit[li+1] > 1 : S_locSplit[li-1] > 1;
+      html += `<div style="display:flex;align-items:center;gap:6px;margin:10px 0 4px;padding-left:4px">
+        <span style="font-size:12px;font-weight:700;color:#2c5f2e">📍 ${loc}</span>
+        <span style="font-size:11px;color:#888">${cnt}팀 · ${interval}분</span>
+        <button onclick="adjustLocSplit(${li},-1)" style="background:none;border:1px solid #ccc;border-radius:4px;padding:0 5px;font-size:12px;cursor:pointer;color:#555" ${canDec?'':' disabled'}>−</button>
+        <button onclick="adjustLocSplit(${li},1)" style="background:none;border:1px solid #ccc;border-radius:4px;padding:0 5px;font-size:12px;cursor:pointer;color:#555" ${canInc?'':' disabled'}>＋</button>
+      </div>`;
       locEntries.forEach(({p, i}, localIdx) => { html += pairCard(p, i, localIdx + 1, localIdx===0, localIdx===locEntries.length-1); });
+      globalOffset += cnt;
     });
   } else {
     S_pairs.forEach((p, i) => { html += pairCard(p, i, i + 1, i===0, i===n-1); });
@@ -1750,36 +1808,32 @@ function calcAutoInterval(totalPairs, numLocations) {
   return { interval: 10, warn: `장소당 짝이 ${ppl}쌍으로 많아요. 전시대를 한 곳 더 추가하는 걸 권장합니다.` };
 }
 
-async function doAssignWithInterval(autoInterval) {
+async function doAssignWithInterval() {
   const ev = S.selEv;
-  if (ev.interval_minutes !== autoInterval) {
-    await db.from('events').update({ interval_minutes: autoInterval }).eq('id', ev.id);
-    S.selEv.interval_minutes = autoInterval;
-  }
-  const slots = getSlots(ev.start_time, ev.end_time, S.selEv.interval_minutes);
-  const locs  = S.selEv.locations || [];
-  const n     = S_pairs.length;
+  const locs = ev.locations || [];
   await db.from('assignments').delete().eq('event_id', ev.id);
   S.assigns = {};
   const rows = [];
-  // Round-robin: pair pi → location (pi % locs.length), ensures gender balance
-  const locPairIdxs = Array.from({length: locs.length}, () => []);
-  for (let pi = 0; pi < n; pi++) locPairIdxs[pi % locs.length].push(pi);
-  for (let si = 0; si < slots.length; si++) {
-    for (let li = 0; li < locs.length; li++) {
-      const idxs = locPairIdxs[li];
-      if (!idxs.length) continue;
-      const mems = S_pairs[idxs[si % idxs.length]].names;
+  const intervals = locs.map((_, li) => getLocInterval(li));
+  for (let li = 0; li < locs.length; li++) {
+    const locPairs = getLocPairs(li);
+    if (!locPairs.length) continue;
+    const interval = intervals[li];
+    const slots = getSlots(ev.start_time, ev.end_time, interval);
+    for (let si = 0; si < slots.length; si++) {
+      const mems = locPairs[si % locPairs.length].names;
       rows.push({ event_id: ev.id, location_index: li, slot_index: si, member_names: mems });
       S.assigns[`${li}_${si}`] = mems;
     }
   }
   if (rows.length) await db.from('assignments').insert(rows);
-  const ev2 = S.selEv;
+  const intervalDesc = locs.length > 1
+    ? locs.map((loc, li) => `${loc} ${intervals[li]}분`).join(' / ')
+    : `${intervals[0]}분`;
   document.getElementById('assign-ev-info').innerHTML = `
     <div class="ev-banner" style="cursor:default;margin-bottom:12px">
-      <h3>📅 ${fmtDate(ev2.date)} ${ev2.title||''}</h3>
-      <p>🕐 ${ev2.start_time}~${ev2.end_time} | ⏱️ ${autoInterval}분 간격</p>
+      <h3>📅 ${fmtDate(ev.date)} ${ev.title||''}</h3>
+      <p>🕐 ${ev.start_time}~${ev.end_time} | ⏱️ ${intervalDesc} 간격</p>
     </div>`;
   renderLocChips();
   renderSlots();
@@ -1906,13 +1960,23 @@ async function assignPairsToSlots() {
     return;
   }
 
-  const { interval: autoInterval, err, warn } = calcAutoInterval(S_pairs.length, numLocs);
-  if (err) { alert(err + '\n\n위 📍 장소 추가 버튼으로 장소를 늘리면 장소당 인원이 줄어듭니다.'); return; }
-  let confirmMsg = `짝 ${S_pairs.length}쌍 / 장소 ${numLocs}곳 → ${autoInterval}분 간격으로 배정합니다.`;
-  if (warn) confirmMsg += `\n\n⚠️ ${warn}`;
-  confirmMsg += '\n\n기존 배정이 초기화됩니다.';
-  if (!confirm(confirmMsg)) return;
-  await doAssignWithInterval(autoInterval);
+  const locs = ev.locations || [];
+  if (numLocs > 1) {
+    if (S_locSplit.length !== numLocs || S_locSplit.reduce((a,b)=>a+b,0) !== S_pairs.length) {
+      S_locSplit = defaultLocSplit(numLocs, S_pairs.length);
+    }
+    const intervalDesc = locs.map((loc, li) => `${loc} ${getLocInterval(li)}분`).join(' / ');
+    let confirmMsg = `짝 ${S_pairs.length}쌍 / 장소 ${numLocs}곳\n${intervalDesc} 간격으로 배정합니다.\n\n기존 배정이 초기화됩니다.`;
+    if (!confirm(confirmMsg)) return;
+  } else {
+    const { interval: autoInterval, err, warn } = calcAutoInterval(S_pairs.length, 1);
+    if (err) { alert(err + '\n\n위 📍 장소 추가 버튼으로 장소를 늘리면 장소당 인원이 줄어듭니다.'); return; }
+    let confirmMsg = `짝 ${S_pairs.length}쌍 → ${autoInterval}분 간격으로 배정합니다.`;
+    if (warn) confirmMsg += `\n\n⚠️ ${warn}`;
+    confirmMsg += '\n\n기존 배정이 초기화됩니다.';
+    if (!confirm(confirmMsg)) return;
+  }
+  await doAssignWithInterval();
 }
 
 async function addLateJoiners() {
@@ -1991,15 +2055,30 @@ function renderSlots() {
     return;
   }
 
-  const slots = getSlots(ev.start_time, ev.end_time, ev.interval_minutes);
   const showNum = locs.length > 1;
-  document.getElementById('slots-wrap').innerHTML = locs.map((loc, li) => {
-    const locCnt = showNum && n > 0 ? S_pairs.filter((_, pi) => pi % locs.length === li).length : n;
-    return `<div class="card">
-      <div class="loc-title">📍 ${loc}</div>
-      ${slots.map((sl, si) => _slotRow(li, si, sl, S.assigns[`${li}_${si}`]||[], showNum, locCnt>0?(si%locCnt)+1:si+1)).join('')}
-    </div>`;
-  }).join('');
+  if (showNum) {
+    if (S_locSplit.length !== locs.length || S_locSplit.reduce((a,b)=>a+b,0) !== n) {
+      S_locSplit = defaultLocSplit(locs.length, n);
+    }
+    document.getElementById('slots-wrap').innerHTML = locs.map((loc, li) => {
+      const locPairs = getLocPairs(li);
+      const interval = getLocInterval(li);
+      const slots = getSlots(ev.start_time, ev.end_time, interval);
+      const cnt = locPairs.length;
+      return `<div class="card">
+        <div class="loc-title">📍 ${loc} <span style="font-size:12px;font-weight:400;color:#666">(${cnt}팀 · ${interval}분)</span></div>
+        ${slots.map((sl, si) => _slotRow(li, si, sl, S.assigns[`${li}_${si}`]||[], true, cnt>0?(si%cnt)+1:si+1)).join('')}
+      </div>`;
+    }).join('');
+  } else {
+    const slots = getSlots(ev.start_time, ev.end_time, ev.interval_minutes);
+    document.getElementById('slots-wrap').innerHTML = locs.map((loc, li) => {
+      return `<div class="card">
+        <div class="loc-title">📍 ${loc}</div>
+        ${slots.map((sl, si) => _slotRow(li, si, sl, S.assigns[`${li}_${si}`]||[], false, (si%n)+1)).join('')}
+      </div>`;
+    }).join('');
+  }
 }
 
 function _slotRow(li, si, sl, mems, showPairNum, pairNum) {
@@ -2045,57 +2124,69 @@ async function loadOutput(evId) {
   (assigns||[]).forEach(a => { am[`${a.location_index}_${a.slot_index}`] = a.member_names||[]; });
 
   const isJangnal = ev.title === '장날 전시대';
-  let slots;
-  let amCount = 0, hasAmData = true, hasPmData = false;
-  if (isJangnal) {
-    const amSl = getSlots('09:15', '12:00', ev.interval_minutes || 20);
-    const pmSl = getSlots('12:00', '16:00', ev.interval_minutes || 20);
-    amCount = amSl.length;
-    slots = [...amSl, ...pmSl];
-    hasAmData = amSl.some((_, si) => locs.some((_, li) => (am[`${li}_${si}`]||[]).length > 0));
-    hasPmData = pmSl.some((_, si) => locs.some((_, li) => (am[`${li}_${amCount+si}`]||[]).length > 0));
-  } else {
-    slots = getSlots(ev.start_time, ev.end_time, ev.interval_minutes);
-  }
-
   const dow = getDow(ev.date);
-  const th  = locs.map(l => `<th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">${l}</th>`).join('');
-  const rows = slots.map((sl, si) => {
-    const isAmRow = isJangnal && si < amCount;
-    if (isJangnal && isAmRow && !hasAmData) return '';
-    if (isJangnal && !isAmRow && !hasPmData) return '';
-    const dividerRow = isJangnal && si === amCount && hasAmData && hasPmData
-      ? `<tr><td colspan="${locs.length+1}" style="background:#e3f2fd;color:#1565c0;padding:5px 10px;font-size:11px;font-weight:700;border:1px solid #90caf9;">오후 12:00~16:00</td></tr>`
-      : '';
-    const tds = locs.map((_,li) => {
-      const ms = am[`${li}_${si}`]||[];
-      return `<td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;">${ms.join('<br>')||'—'}</td>`;
+  const titleRow = `<tr><th colspan="2" style="background:#f5c518;color:#111;padding:12px;text-align:center;border:1px solid #e0a800;font-size:15px;font-weight:700;">📅 ${fmtDate(ev.date)} (${dow}) ${ev.title?'· '+ev.title:'전시대 봉사'}</th></tr>`;
+
+  if (isJangnal) {
+    const interval = ev.interval_minutes || 20;
+    const amSl = getSlots('09:15', '12:00', interval);
+    const pmSl = getSlots('12:00', '16:00', interval);
+    const amCount = amSl.length;
+    const slots = [...amSl, ...pmSl];
+    const hasAmData = amSl.some((_, si) => locs.some((_, li) => (am[`${li}_${si}`]||[]).length > 0));
+    const hasPmData = pmSl.some((_, si) => locs.some((_, li) => (am[`${li}_${amCount+si}`]||[]).length > 0));
+    const th = locs.map(l => `<th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">${l}</th>`).join('');
+    const amDivider = hasAmData
+      ? `<tr><td colspan="${locs.length+1}" style="background:#fff3e0;color:#e65100;padding:5px 10px;font-size:11px;font-weight:700;border:1px solid #ffcc80;">오전 09:15~12:00</td></tr>`
+      : hasPmData ? `<tr><td colspan="${locs.length+1}" style="background:#e3f2fd;color:#1565c0;padding:5px 10px;font-size:11px;font-weight:700;border:1px solid #90caf9;">오후 12:00~16:00</td></tr>` : '';
+    const rows = slots.map((sl, si) => {
+      const isAmRow = si < amCount;
+      if (isAmRow && !hasAmData) return '';
+      if (!isAmRow && !hasPmData) return '';
+      const dividerRow = si === amCount && hasAmData && hasPmData
+        ? `<tr><td colspan="${locs.length+1}" style="background:#e3f2fd;color:#1565c0;padding:5px 10px;font-size:11px;font-weight:700;border:1px solid #90caf9;">오후 12:00~16:00</td></tr>` : '';
+      const tds = locs.map((_,li) => { const ms = am[`${li}_${si}`]||[]; return `<td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;">${ms.join('<br>')||'—'}</td>`; }).join('');
+      return `${dividerRow}<tr><td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;font-weight:600;background:${isAmRow?'#fff3e0':'#e3f2fd'};white-space:nowrap;font-size:12px;">${sl.start}~${sl.end}</td>${tds}</tr>`;
     }).join('');
-    return `${dividerRow}<tr>
-      <td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;font-weight:600;background:${isJangnal?(isAmRow?'#fff3e0':'#e3f2fd'):'#fffde7'};white-space:nowrap;font-size:12px;">${sl.start}~${sl.end}</td>
-      ${tds}
-    </tr>`;
-  }).join('');
-
-  // 오전 헤더: 오전 데이터 있을 때. 오전 없고 오후만 있을 때는 오후 헤더를 맨 위에.
-  const amDivider = isJangnal && hasAmData
-    ? `<tr><td colspan="${locs.length+1}" style="background:#fff3e0;color:#e65100;padding:5px 10px;font-size:11px;font-weight:700;border:1px solid #ffcc80;">오전 09:15~12:00</td></tr>`
-    : isJangnal && hasPmData
-    ? `<tr><td colspan="${locs.length+1}" style="background:#e3f2fd;color:#1565c0;padding:5px 10px;font-size:11px;font-weight:700;border:1px solid #90caf9;">오후 12:00~16:00</td></tr>`
-    : '';
-
-  document.getElementById('out-table-wrap').innerHTML = `
-    <table style="width:100%;border-collapse:collapse;font-size:13px;">
-      <thead>
-        <tr><th colspan="${locs.length+1}" style="background:#f5c518;color:#111;padding:12px;text-align:center;border:1px solid #e0a800;font-size:15px;font-weight:700;">
-          📅 ${fmtDate(ev.date)} (${dow}) ${ev.title?'· '+ev.title:'전시대 봉사'}
-        </th></tr>
-        <tr>
-          <th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">시간</th>${th}
-        </tr>
-      </thead>
-      <tbody>${amDivider}${rows}</tbody>
-    </table>`;
+    document.getElementById('out-table-wrap').innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead>${titleRow}<tr><th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">시간</th>${th}</tr></thead><tbody>${amDivider}${rows}</tbody></table>`;
+  } else if (locs.length > 1) {
+    // per-location: infer each location's slot count from assignments
+    const locTables = locs.map((loc, li) => {
+      // find max slot_index for this location
+      const locSlotCount = Object.keys(am).filter(k => k.startsWith(`${li}_`)).reduce((max, k) => {
+        const si = parseInt(k.split('_')[1]);
+        return si > max ? si : max;
+      }, -1) + 1;
+      // infer interval: totalMins / locSlotCount, rounded to nearest 5
+      const totalMins = toM(ev.end_time) - toM(ev.start_time);
+      let interval = ev.interval_minutes || 20;
+      if (locSlotCount > 0) {
+        const raw = totalMins / locSlotCount;
+        interval = Math.round(raw / 5) * 5 || interval;
+      }
+      const slots = locSlotCount > 0 ? getSlots(ev.start_time, ev.end_time, interval) : [];
+      const rows = slots.map((sl, si) => {
+        const ms = am[`${li}_${si}`]||[];
+        return `<tr><td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;font-weight:600;background:#fffde7;white-space:nowrap;font-size:12px;">${sl.start}~${sl.end}</td><td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;">${ms.join('<br>')||'—'}</td></tr>`;
+      }).join('');
+      return `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:12px;">
+        <thead>
+          ${titleRow}
+          <tr><th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">시간</th><th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">📍 ${loc}</th></tr>
+        </thead>
+        <tbody>${rows||'<tr><td colspan="2" style="padding:10px;text-align:center;color:#999;border:1px solid #e0e0e0;">배정 없음</td></tr>'}</tbody>
+      </table>`;
+    }).join('');
+    document.getElementById('out-table-wrap').innerHTML = locTables;
+  } else {
+    const slots = getSlots(ev.start_time, ev.end_time, ev.interval_minutes);
+    const th = locs.map(l => `<th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">${l}</th>`).join('');
+    const rows = slots.map((sl, si) => {
+      const tds = locs.map((_,li) => { const ms = am[`${li}_${si}`]||[]; return `<td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;">${ms.join('<br>')||'—'}</td>`; }).join('');
+      return `<tr><td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;font-weight:600;background:#fffde7;white-space:nowrap;font-size:12px;">${sl.start}~${sl.end}</td>${tds}</tr>`;
+    }).join('');
+    document.getElementById('out-table-wrap').innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead>${titleRow}<tr><th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">시간</th>${th}</tr></thead><tbody>${rows}</tbody></table>`;
+  }
 }
 
 function backToOutSelect() { loadOutEvSelect(); }
