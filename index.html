@@ -1810,7 +1810,7 @@ function calcAutoInterval(totalPairs, numLocations) {
 
 async function doAssignWithInterval() {
   const ev = S.selEv;
-  const locs = ev.locations || [];
+  const locs = (ev.locations && ev.locations.length) ? ev.locations : ['전시대'];
   await db.from('assignments').delete().eq('event_id', ev.id);
   S.assigns = {};
   const rows = [];
@@ -2028,7 +2028,7 @@ async function addLateJoiners() {
 
 function renderSlots() {
   const ev = S.selEv;
-  const locs = ev.locations || [];
+  const locs = (ev.locations && ev.locations.length) ? ev.locations : ['전시대'];
   const n = S_pairs.length;
   const isJangnal = ev.title === '장날 전시대';
 
