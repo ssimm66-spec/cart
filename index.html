@@ -1811,10 +1811,15 @@ function calcAutoInterval(totalPairs, numLocations) {
 async function doAssignWithInterval() {
   const ev = S.selEv;
   const locs = (ev.locations && ev.locations.length) ? ev.locations : ['전시대'];
+  const intervals = locs.map((_, li) => getLocInterval(li));
+  // 단일 장소는 ev.interval_minutes 저장 (renderSlots 등에서 사용)
+  if (locs.length === 1 && intervals[0] !== ev.interval_minutes) {
+    await db.from('events').update({ interval_minutes: intervals[0] }).eq('id', ev.id);
+    S.selEv.interval_minutes = intervals[0];
+  }
   await db.from('assignments').delete().eq('event_id', ev.id);
   S.assigns = {};
   const rows = [];
-  const intervals = locs.map((_, li) => getLocInterval(li));
   for (let li = 0; li < locs.length; li++) {
     const locPairs = getLocPairs(li);
     if (!locPairs.length) continue;
@@ -2071,7 +2076,8 @@ function renderSlots() {
       </div>`;
     }).join('');
   } else {
-    const slots = getSlots(ev.start_time, ev.end_time, ev.interval_minutes);
+    const interval = getLocInterval(0) || ev.interval_minutes || 20;
+    const slots = getSlots(ev.start_time, ev.end_time, interval);
     document.getElementById('slots-wrap').innerHTML = locs.map((loc, li) => {
       return `<div class="card">
         <div class="loc-title">📍 ${loc}</div>
