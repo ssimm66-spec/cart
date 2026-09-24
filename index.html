@@ -1776,21 +1776,25 @@ function resetPairs() {
   renderSlots();
 }
 
-function pairsToCode(pairs) {
-  return btoa(unescape(encodeURIComponent(JSON.stringify(pairs))));
+function namesToCode(names) {
+  return btoa(unescape(encodeURIComponent(JSON.stringify(names))));
 }
-function codeToPairs(code) {
-  return JSON.parse(decodeURIComponent(escape(atob(code.trim()))));
+function codeToNames(code) {
+  const parsed = JSON.parse(decodeURIComponent(escape(atob(code.trim()))));
+  // 이름 배열 또는 구 버전 짝 배열 모두 지원
+  if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'string') return parsed;
+  if (Array.isArray(parsed) && parsed[0]?.names) return parsed.flatMap(p => p.names);
+  return [];
 }
 
 async function copyPairsToClipboard() {
-  if (!S_pairs.length) { alert('복사할 짝이 없어요.'); return; }
-  const code = pairsToCode(S_pairs);
+  const names = S_pairs.flatMap(p => p.names);
+  if (!names.length) { alert('복사할 명단이 없어요.'); return; }
+  const code = namesToCode(names);
   try {
     await navigator.clipboard.writeText(code);
-    alert('클립보드에 복사됐어요!\n다른 전시대에서 📥 붙여넣기를 눌러 가져오세요.');
+    alert(`${names.length}명 명단이 클립보드에 복사됐어요!\n다른 전시대에서 📥 붙여넣기를 눌러 추가하세요.`);
   } catch(e) {
-    // 클립보드 권한 없을 때 직접 복사할 수 있도록 표시
     prompt('아래 코드를 길게 눌러 복사하세요:', code);
   }
 }
@@ -1798,27 +1802,26 @@ async function copyPairsToClipboard() {
 function showImportPairsModal() {
   document.getElementById('import-pairs-input').value = '';
   openModal('import-pairs-modal');
-  // 클립보드에서 자동으로 읽기 시도
   navigator.clipboard?.readText().then(text => {
-    try { codeToPairs(text); document.getElementById('import-pairs-input').value = text; } catch(e) {}
+    try { const n = codeToNames(text); if (n.length) document.getElementById('import-pairs-input').value = text; } catch(e) {}
   }).catch(() => {});
 }
 
 function doImportPairs() {
   const code = document.getElementById('import-pairs-input').value.trim();
   if (!code) { alert('코드를 붙여넣어 주세요.'); return; }
-  let pairs;
-  try { pairs = codeToPairs(code); } catch(e) { alert('올바른 코드가 아니에요.'); return; }
-  if (!Array.isArray(pairs) || pairs.length === 0) { alert('짝 데이터가 없어요.'); return; }
-  if (!confirm(`${pairs.length}쌍을 가져올까요? 기존 짝은 덮어씁니다.`)) return;
-  S_pairs = pairs.map(p => ({ names: [...p.names], ...(p.ampm ? { ampm: p.ampm } : {}) }));
-  S_selPair.clear();
-  loadLocSplit();
-  savePairsLocal();
+  let names;
+  try { names = codeToNames(code); } catch(e) { alert('올바른 코드가 아니에요.'); return; }
+  if (!names.length) { alert('이름 데이터가 없어요.'); return; }
+  // pool에 없는 이름만 추가
+  const existing = new Set(S.regs.map(r => r.member_name));
+  const toAdd = names.filter(n => !existing.has(n));
+  toAdd.forEach(n => S.regs.push({ id: null, member_name: n, time_slots: [] }));
+  document.getElementById('reg-cnt').textContent = `(${S.regs.length}명)`;
   renderPool();
-  renderPairs();
-  renderSlots();
   closeModal('import-pairs-modal');
+  if (toAdd.length) alert(`${toAdd.length}명이 짝 만들기 목록에 추가됐어요.`);
+  else alert('이미 모두 목록에 있어요.');
 }
 
 async function showCopyPairsModal() {
