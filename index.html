@@ -374,6 +374,7 @@ textarea { resize: vertical; min-height: 70px; }
         <div class="flex-between mb-8">
           <div class="sec-title" style="margin:0">② 짝 순서 <span style="color:#888;font-size:11px;font-weight:400">드래그로 변경</span></div>
           <div style="display:flex;gap:6px">
+            <button class="btn btn-outline btn-sm" onclick="showCopyPairsModal()">📋 복사</button>
             <button class="btn btn-outline btn-sm" onclick="addLateJoiners()">➕ 늦은 신청자</button>
             <button class="btn btn-danger btn-sm" onclick="resetPairs()">초기화</button>
           </div>
@@ -544,6 +545,17 @@ textarea { resize: vertical; min-height: 70px; }
 </div>
 
 <!-- 현장 참석자 직접 추가 모달 -->
+<div id="copy-pairs-modal" class="modal-bg">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>다른 전시대에서 짝 복사</h3>
+      <button class="modal-close" onclick="closeModal('copy-pairs-modal')">✕</button>
+    </div>
+    <p style="font-size:13px;color:#666;margin-bottom:12px">이 기기에서 저장된 짝 목록을 복사합니다</p>
+    <div id="copy-pairs-list" style="max-height:360px;overflow-y:auto;display:flex;flex-direction:column;gap:6px"></div>
+  </div>
+</div>
+
 <div id="direct-add-modal" class="modal-bg">
   <div class="modal">
     <div class="modal-head">
@@ -1742,6 +1754,66 @@ function resetPairs() {
   renderPool();
   renderPairs();
   renderSlots();
+}
+
+async function showCopyPairsModal() {
+  const curEvId = S.selEv?.id;
+  // localStorage에서 pairs_* 키 모두 찾기
+  const pairKeys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith('pairs_') && key !== `pairs_${curEvId}`) {
+      const raw = localStorage.getItem(key);
+      try {
+        const pairs = JSON.parse(raw);
+        if (Array.isArray(pairs) && pairs.length > 0) {
+          pairKeys.push({ evId: key.replace('pairs_', ''), pairs });
+        }
+      } catch(e) {}
+    }
+  }
+
+  const listEl = document.getElementById('copy-pairs-list');
+  if (pairKeys.length === 0) {
+    listEl.innerHTML = '<p style="color:#999;text-align:center;font-size:13px;padding:20px">이 기기에 저장된 다른 전시대 짝이 없습니다</p>';
+    openModal('copy-pairs-modal');
+    return;
+  }
+
+  // 이벤트 이름 조회
+  const evIds = pairKeys.map(p => p.evId);
+  const { data: evs } = await db.from('events').select('id,title,date').in('id', evIds);
+  const evMap = Object.fromEntries((evs||[]).map(e => [e.id, e]));
+
+  listEl.innerHTML = pairKeys.map(({ evId, pairs }) => {
+    const ev = evMap[evId];
+    const label = ev ? `${ev.date} ${ev.title||''}` : evId.slice(0,8) + '…';
+    const names = pairs.map(p => p.names.join('+')).join(', ');
+    return `<div style="border:1.5px solid #e0e0e0;border-radius:10px;padding:12px 14px;cursor:pointer;background:#fff"
+      onclick="doCopyPairs('${evId}')">
+      <div style="font-weight:700;font-size:14px;margin-bottom:4px">📅 ${label}</div>
+      <div style="font-size:12px;color:#666">${pairs.length}쌍 — ${names.slice(0,60)}${names.length>60?'…':''}</div>
+    </div>`;
+  }).join('');
+
+  openModal('copy-pairs-modal');
+}
+
+function doCopyPairs(srcEvId) {
+  const raw = localStorage.getItem(`pairs_${srcEvId}`);
+  if (!raw) return;
+  let pairs;
+  try { pairs = JSON.parse(raw); } catch(e) { return; }
+  if (!Array.isArray(pairs) || pairs.length === 0) return;
+  if (!confirm(`${pairs.length}쌍을 현재 전시대로 복사할까요?\n기존 짝이 있으면 덮어씁니다.`)) return;
+  S_pairs = pairs.map(p => ({ names: [...p.names], ...(p.ampm ? { ampm: p.ampm } : {}) }));
+  S_selPair.clear();
+  loadLocSplit();
+  savePairsLocal();
+  renderPool();
+  renderPairs();
+  renderSlots();
+  closeModal('copy-pairs-modal');
 }
 
 let _grpSize = 2;
