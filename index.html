@@ -660,7 +660,7 @@ async function doLogin() {
       if (!leader) { errEl.textContent = '비밀번호가 틀렸습니다.'; return; }
       S.user = { type: 'leader', id: leader.id, name: leader.name, isAdmin: !!leader.is_admin };
     }
-    localStorage.setItem('cart_saved_user', JSON.stringify({ type: 'leader', name: S.user.name }));
+    localStorage.setItem('cart_saved_user', JSON.stringify({ type: 'leader', name: S.user.name, pw }));
     document.getElementById('l-name-hdr').textContent = S.user.name;
     document.getElementById('l-role-hdr').textContent = S.user.isAdmin ? '관리자' : '인도자';
     document.getElementById('admin-section').style.display = S.user.isAdmin ? 'block' : 'none';
@@ -2156,34 +2156,43 @@ async function loadOutput(evId) {
     }).join('');
     document.getElementById('out-table-wrap').innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead>${titleRow}<tr><th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">시간</th>${th}</tr></thead><tbody>${amDivider}${rows}</tbody></table>`;
   } else if (locs.length > 1) {
-    // per-location: infer each location's slot count from assignments
-    const locTables = locs.map((loc, li) => {
-      // find max slot_index for this location
-      const locSlotCount = Object.keys(am).filter(k => k.startsWith(`${li}_`)).reduce((max, k) => {
+    // 장소별 슬롯 수 계산
+    const totalMins = toM(ev.end_time) - toM(ev.start_time);
+    const locInfos = locs.map((loc, li) => {
+      const slotCount = Object.keys(am).filter(k => k.startsWith(`${li}_`)).reduce((max, k) => {
         const si = parseInt(k.split('_')[1]);
         return si > max ? si : max;
       }, -1) + 1;
-      // infer interval: totalMins / locSlotCount, rounded to nearest 5
-      const totalMins = toM(ev.end_time) - toM(ev.start_time);
       let interval = ev.interval_minutes || 20;
-      if (locSlotCount > 0) {
-        const raw = totalMins / locSlotCount;
+      if (slotCount > 0) {
+        const raw = totalMins / slotCount;
         interval = Math.round(raw / 5) * 5 || interval;
       }
-      const slots = locSlotCount > 0 ? getSlots(ev.start_time, ev.end_time, interval) : [];
+      return { loc, li, slotCount, interval };
+    });
+    const allSame = locInfos.every(info => info.slotCount === locInfos[0].slotCount && info.interval === locInfos[0].interval);
+    if (allSame && locInfos[0].slotCount > 0) {
+      // 슬롯 수/간격 동일 → 통합 테이블
+      const { interval } = locInfos[0];
+      const slots = getSlots(ev.start_time, ev.end_time, interval);
+      const th = locs.map(l => `<th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">${l}</th>`).join('');
       const rows = slots.map((sl, si) => {
-        const ms = am[`${li}_${si}`]||[];
-        return `<tr><td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;font-weight:600;background:#fffde7;white-space:nowrap;font-size:12px;">${sl.start}~${sl.end}</td><td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;">${ms.join('<br>')||'—'}</td></tr>`;
+        const tds = locs.map((_,li) => { const ms = am[`${li}_${si}`]||[]; return `<td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;">${ms.join('<br>')||'—'}</td>`; }).join('');
+        return `<tr><td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;font-weight:600;background:#fffde7;white-space:nowrap;font-size:12px;">${sl.start}~${sl.end}</td>${tds}</tr>`;
       }).join('');
-      return `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:12px;">
-        <thead>
-          ${titleRow}
-          <tr><th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">시간</th><th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">📍 ${loc}</th></tr>
-        </thead>
-        <tbody>${rows||'<tr><td colspan="2" style="padding:10px;text-align:center;color:#999;border:1px solid #e0e0e0;">배정 없음</td></tr>'}</tbody>
-      </table>`;
-    }).join('');
-    document.getElementById('out-table-wrap').innerHTML = locTables;
+      document.getElementById('out-table-wrap').innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead>${titleRow}<tr><th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">시간</th>${th}</tr></thead><tbody>${rows}</tbody></table>`;
+    } else {
+      // 슬롯 수/간격 다름 → 장소별 테이블
+      const locTables = locInfos.map(({ loc, li, slotCount, interval }) => {
+        const slots = slotCount > 0 ? getSlots(ev.start_time, ev.end_time, interval) : [];
+        const rows = slots.map((sl, si) => {
+          const ms = am[`${li}_${si}`]||[];
+          return `<tr><td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;font-weight:600;background:#fffde7;white-space:nowrap;font-size:12px;">${sl.start}~${sl.end}</td><td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;">${ms.join('<br>')||'—'}</td></tr>`;
+        }).join('');
+        return `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:12px;"><thead>${titleRow}<tr><th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">시간</th><th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">📍 ${loc}</th></tr></thead><tbody>${rows||'<tr><td colspan="2" style="padding:10px;text-align:center;color:#999;border:1px solid #e0e0e0;">배정 없음</td></tr>'}</tbody></table>`;
+      }).join('');
+      document.getElementById('out-table-wrap').innerHTML = locTables;
+    }
   } else {
     const slots = getSlots(ev.start_time, ev.end_time, ev.interval_minutes);
     const th = locs.map(l => `<th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">${l}</th>`).join('');
@@ -2608,8 +2617,20 @@ async function addDirectAttendee(memberId, name, ampm) {
     } else {
       localStorage.removeItem('cart_saved_user');
     }
+  } else if (saved.type === 'leader' && saved.pw) {
+    const { data: leader, error: rpcErr } = await db.rpc('check_leader_login', { p_name: saved.name, p_password: saved.pw });
+    if (!rpcErr && leader) {
+      S.user = { type: 'leader', id: leader.id, name: leader.name, isAdmin: !!leader.is_admin };
+      document.getElementById('l-name-hdr').textContent = S.user.name;
+      document.getElementById('l-role-hdr').textContent = S.user.isAdmin ? '관리자' : '인도자';
+      document.getElementById('admin-section').style.display = S.user.isAdmin ? 'block' : 'none';
+      showScreen('leader');
+      gotoTab('assign');
+    } else {
+      // 비밀번호 변경 등으로 실패 시 이름만 채워두고 로그인 대기
+      document.getElementById('inp-name').value = saved.name;
+    }
   }
-  // 인도자는 이름만 채워두고 비밀번호 입력 대기
 })();
 
 // ── 당겨서 새로고침 (PWA 홈화면 전용) ──────────────────────────
