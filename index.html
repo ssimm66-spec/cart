@@ -1329,10 +1329,19 @@ function getLocPairs(li) {
   const start = S_locSplit.slice(0, li).reduce((a,b)=>a+b, 0);
   return S_pairs.slice(start, start + (S_locSplit[li]||0));
 }
-function getLocInterval(li) {
+function getLocInterval(li, startTime, endTime) {
   const n = S_locSplit[li] || 0;
   const r = calcAutoInterval(n, 1);
-  return r.interval || 20;
+  let interval = r.interval || 20;
+  // 총 시간 ÷ 팀 수보다 간격이 크면 모든 팀이 못 나옴 → 간격 줄이기
+  if (startTime && endTime && n > 0) {
+    const totalMins = toM(endTime) - toM(startTime);
+    const maxInterval = Math.floor(totalMins / n);
+    if (maxInterval < interval) {
+      interval = Math.max(5, Math.floor(maxInterval / 5) * 5);
+    }
+  }
+  return interval;
 }
 function adjustLocSplit(li, delta) {
   const locs = S.selEv?.locations || [];
@@ -1514,7 +1523,7 @@ function renderPairs() {
     locs.forEach((loc, li) => {
       const cnt = S_locSplit[li] || 0;
       const locEntries = S_pairs.slice(globalOffset, globalOffset + cnt).map((p, localIdx) => ({p, i: globalOffset + localIdx}));
-      const interval = getLocInterval(li);
+      const interval = getLocInterval(li, S.selEv?.start_time, S.selEv?.end_time);
       const canDec = S_locSplit[li] > 1;
       const canInc = li < locs.length - 1 ? S_locSplit[li+1] > 1 : S_locSplit[li-1] > 1;
       html += `<div style="display:flex;align-items:center;gap:6px;margin:10px 0 4px;padding-left:4px">
@@ -1957,7 +1966,7 @@ async function doAssignWithInterval() {
   const locs = (ev.locations && ev.locations.length) ? ev.locations : ['전시대'];
   // S_locSplit이 현재 짝 수와 맞지 않으면 재계산
   if (S_locSplit.reduce((a,b)=>a+b,0) !== S_pairs.length) loadLocSplit();
-  const intervals = locs.map((_, li) => getLocInterval(li));
+  const intervals = locs.map((_, li) => getLocInterval(li, ev.start_time, ev.end_time));
   // 단일 장소는 ev.interval_minutes 저장 (renderSlots 등에서 사용)
   if (locs.length === 1 && intervals[0] !== ev.interval_minutes) {
     await db.from('events').update({ interval_minutes: intervals[0] }).eq('id', ev.id);
@@ -2116,7 +2125,7 @@ async function assignPairsToSlots() {
     if (S_locSplit.length !== numLocs || S_locSplit.reduce((a,b)=>a+b,0) !== S_pairs.length) {
       S_locSplit = defaultLocSplit(numLocs, S_pairs.length);
     }
-    const intervalDesc = locs.map((loc, li) => `${loc} ${getLocInterval(li)}분`).join(' / ');
+    const intervalDesc = locs.map((loc, li) => `${loc} ${getLocInterval(li, ev.start_time, ev.end_time)}분`).join(' / ');
     let confirmMsg = `짝 ${S_pairs.length}쌍 / 장소 ${numLocs}곳\n${intervalDesc} 간격으로 배정합니다.\n\n기존 배정이 초기화됩니다.`;
     if (!confirm(confirmMsg)) return;
   } else {
@@ -2213,7 +2222,7 @@ function renderSlots() {
     }
     document.getElementById('slots-wrap').innerHTML = locs.map((loc, li) => {
       const locPairs = getLocPairs(li);
-      const interval = getLocInterval(li);
+      const interval = getLocInterval(li, ev.start_time, ev.end_time);
       const slots = getSlots(ev.start_time, ev.end_time, interval);
       const cnt = locPairs.length;
       return `<div class="card">
@@ -2222,7 +2231,7 @@ function renderSlots() {
       </div>`;
     }).join('');
   } else {
-    const interval = getLocInterval(0) || ev.interval_minutes || 20;
+    const interval = getLocInterval(0, ev.start_time, ev.end_time) || ev.interval_minutes || 20;
     const slots = getSlots(ev.start_time, ev.end_time, interval);
     document.getElementById('slots-wrap').innerHTML = locs.map((loc, li) => {
       return `<div class="card">
