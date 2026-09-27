@@ -858,7 +858,8 @@ function buildOutputTableHtml(ev, assigns) {
     amCount = amSl.length;
     slots = [...amSl, ...pmSl];
   } else {
-    slots = getSlots(ev.start_time, ev.end_time, ev.interval_minutes);
+    const cnt = Math.max(0, ...locs.map((_, li) => assignedSlotCount(am, li)));
+    slots = cnt ? getSlotsByCount(ev.start_time, ev.end_time, cnt) : getSlots(ev.start_time, ev.end_time, ev.interval_minutes);
   }
   if (!slots.length) return '';
   const th = locs.map(l => `<th style="background:#f5c518;padding:6px 8px;border:1px solid #e0a800;font-size:11px">${l}</th>`).join('');
@@ -1329,21 +1330,30 @@ function getLocPairs(li) {
   const start = S_locSplit.slice(0, li).reduce((a,b)=>a+b, 0);
   return S_pairs.slice(start, start + (S_locSplit[li]||0));
 }
+// 슬롯 수를 팀 수의 배수로 맞춰 모든 팀이 같은 횟수만큼 서도록 함
+function getLocSlotCount(li, startTime, endTime) {
+  const n = S_locSplit[li] || 0;
+  const total = toM(endTime) - toM(startTime);
+  if (!n || !(total > 0)) return 0;
+  const target = calcAutoInterval(n, 1).interval || 20;
+  let rounds = Math.max(1, Math.round(total / (target * n)));
+  while (rounds > 1 && total / (rounds * n) < 10) rounds--;
+  return rounds * n;
+}
 function getLocInterval(li, startTime, endTime) {
   const n = S_locSplit[li] || 0;
-  if (n === 0) return 20;
-  const r = calcAutoInterval(n, 1);
-  let interval = r.interval || 20;
-  if (startTime && endTime) {
-    const totalMins = toM(endTime) - toM(startTime);
-    if (totalMins > 0) {
-      // 간격을 5분씩 줄여서 모든 팀(n팀)이 최소 1슬롯 받을 때까지 반복
-      while (interval > 5 && Math.ceil(totalMins / interval) < n) {
-        interval -= 5;
-      }
-    }
-  }
-  return interval;
+  const target = calcAutoInterval(n, 1).interval || 20;
+  if (!startTime || !endTime) return target;
+  const cnt = getLocSlotCount(li, startTime, endTime);
+  return cnt ? Math.round((toM(endTime) - toM(startTime)) / cnt) : target;
+}
+function assignedSlotCount(am, li) {
+  let max = -1;
+  Object.keys(am).forEach(k => {
+    const [l, s] = k.split('_').map(Number);
+    if (l === li && s > max) max = s;
+  });
+  return max + 1;
 }
 function adjustLocSplit(li, delta) {
   const locs = S.selEv?.locations || [];
@@ -1980,14 +1990,8 @@ async function doAssignWithInterval() {
   for (let li = 0; li < locs.length; li++) {
     const locPairs = getLocPairs(li);
     if (!locPairs.length) continue;
-    let interval = intervals[li];
-    let slots = getSlots(ev.start_time, ev.end_time, interval);
-    // 혹시 슬롯 수가 팀 수보다 적으면 간격 줄여서 재계산
-    while (slots.length < locPairs.length && interval > 5) {
-      interval -= 5;
-      slots = getSlots(ev.start_time, ev.end_time, interval);
-    }
-    for (let si = 0; si < slots.length; si++) {
+    const slotCount = getLocSlotCount(li, ev.start_time, ev.end_time);
+    for (let si = 0; si < slotCount; si++) {
       const mems = locPairs[si % locPairs.length].names;
       rows.push({ event_id: ev.id, location_index: li, slot_index: si, member_names: mems });
       S.assigns[`${li}_${si}`] = mems;
@@ -2229,8 +2233,9 @@ function renderSlots() {
     }
     document.getElementById('slots-wrap').innerHTML = locs.map((loc, li) => {
       const locPairs = getLocPairs(li);
-      const interval = getLocInterval(li, ev.start_time, ev.end_time);
-      const slots = getSlots(ev.start_time, ev.end_time, interval);
+      const slotCount = assignedSlotCount(S.assigns, li) || getLocSlotCount(li, ev.start_time, ev.end_time);
+      const slots = getSlotsByCount(ev.start_time, ev.end_time, slotCount);
+      const interval = slotCount ? Math.round((toM(ev.end_time) - toM(ev.start_time)) / slotCount) : 0;
       const cnt = locPairs.length;
       return `<div class="card">
         <div class="loc-title">📍 ${loc} <span style="font-size:12px;font-weight:400;color:#666">(${cnt}팀 · ${interval}분)</span></div>
@@ -2238,8 +2243,10 @@ function renderSlots() {
       </div>`;
     }).join('');
   } else {
-    const interval = getLocInterval(0, ev.start_time, ev.end_time) || ev.interval_minutes || 20;
-    const slots = getSlots(ev.start_time, ev.end_time, interval);
+    const slotCount = assignedSlotCount(S.assigns, 0) || getLocSlotCount(0, ev.start_time, ev.end_time);
+    const slots = slotCount
+      ? getSlotsByCount(ev.start_time, ev.end_time, slotCount)
+      : getSlots(ev.start_time, ev.end_time, ev.interval_minutes || 20);
     document.getElementById('slots-wrap').innerHTML = locs.map((loc, li) => {
       return `<div class="card">
         <div class="loc-title">📍 ${loc}</div>
@@ -2319,24 +2326,11 @@ async function loadOutput(evId) {
     document.getElementById('out-table-wrap').innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead>${titleRow}<tr><th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">시간</th>${th}</tr></thead><tbody>${amDivider}${rows}</tbody></table>`;
   } else if (locs.length > 1) {
     // 장소별 슬롯 수 계산
-    const totalMins = toM(ev.end_time) - toM(ev.start_time);
-    const locInfos = locs.map((loc, li) => {
-      const slotCount = Object.keys(am).filter(k => k.startsWith(`${li}_`)).reduce((max, k) => {
-        const si = parseInt(k.split('_')[1]);
-        return si > max ? si : max;
-      }, -1) + 1;
-      let interval = ev.interval_minutes || 20;
-      if (slotCount > 0) {
-        const raw = totalMins / slotCount;
-        interval = Math.round(raw / 5) * 5 || interval;
-      }
-      return { loc, li, slotCount, interval };
-    });
-    const allSame = locInfos.every(info => info.slotCount === locInfos[0].slotCount && info.interval === locInfos[0].interval);
+    const locInfos = locs.map((loc, li) => ({ loc, li, slotCount: assignedSlotCount(am, li) }));
+    const allSame = locInfos.every(info => info.slotCount === locInfos[0].slotCount);
     if (allSame && locInfos[0].slotCount > 0) {
-      // 슬롯 수/간격 동일 → 통합 테이블
-      const { interval } = locInfos[0];
-      const slots = getSlots(ev.start_time, ev.end_time, interval);
+      // 슬롯 수 동일 → 통합 테이블
+      const slots = getSlotsByCount(ev.start_time, ev.end_time, locInfos[0].slotCount);
       const th = locs.map(l => `<th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">${l}</th>`).join('');
       const rows = slots.map((sl, si) => {
         const tds = locs.map((_,li) => { const ms = am[`${li}_${si}`]||[]; return `<td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;">${ms.join('<br>')||'—'}</td>`; }).join('');
@@ -2345,8 +2339,8 @@ async function loadOutput(evId) {
       document.getElementById('out-table-wrap').innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead>${titleRow}<tr><th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">시간</th>${th}</tr></thead><tbody>${rows}</tbody></table>`;
     } else {
       // 슬롯 수/간격 다름 → 장소별 테이블
-      const locTables = locInfos.map(({ loc, li, slotCount, interval }) => {
-        const slots = slotCount > 0 ? getSlots(ev.start_time, ev.end_time, interval) : [];
+      const locTables = locInfos.map(({ loc, li, slotCount }) => {
+        const slots = getSlotsByCount(ev.start_time, ev.end_time, slotCount);
         const rows = slots.map((sl, si) => {
           const ms = am[`${li}_${si}`]||[];
           return `<tr><td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;font-weight:600;background:#fffde7;white-space:nowrap;font-size:12px;">${sl.start}~${sl.end}</td><td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;">${ms.join('<br>')||'—'}</td></tr>`;
@@ -2356,7 +2350,8 @@ async function loadOutput(evId) {
       document.getElementById('out-table-wrap').innerHTML = locTables;
     }
   } else {
-    const slots = getSlots(ev.start_time, ev.end_time, ev.interval_minutes);
+    const cnt = assignedSlotCount(am, 0);
+    const slots = cnt ? getSlotsByCount(ev.start_time, ev.end_time, cnt) : getSlots(ev.start_time, ev.end_time, ev.interval_minutes);
     const th = locs.map(l => `<th style="background:#f5c518;padding:9px 12px;border:1px solid #e0a800;">${l}</th>`).join('');
     const rows = slots.map((sl, si) => {
       const tds = locs.map((_,li) => { const ms = am[`${li}_${si}`]||[]; return `<td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center;">${ms.join('<br>')||'—'}</td>`; }).join('');
@@ -2414,6 +2409,24 @@ function getSlots(start, end, interval) {
   let cur = startM;
   for (let i = 0; i < numSlots; i++) {
     const dur = i < nFull ? interval : shortInterval;
+    slots.push({ start: toT(cur), end: toT(cur + dur) });
+    cur += dur;
+  }
+  return slots;
+}
+
+// 총 시간을 count개 슬롯으로 5분 단위로 나눔 (남는 시간은 앞쪽 슬롯에 5분씩 추가)
+function getSlotsByCount(start, end, count) {
+  const startM = toM(start), total = toM(end) - startM;
+  if (!(total > 0) || !(count > 0)) return [];
+  const base = Math.max(5, Math.floor(total / count / 5) * 5);
+  let extra = total - base * count;
+  const slots = [];
+  let cur = startM;
+  for (let i = 0; i < count; i++) {
+    let dur = base;
+    if (extra >= 5) { dur += 5; extra -= 5; }
+    if (i === count - 1) dur = startM + total - cur;
     slots.push({ start: toT(cur), end: toT(cur + dur) });
     cur += dur;
   }
