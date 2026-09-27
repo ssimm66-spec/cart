@@ -1331,14 +1331,16 @@ function getLocPairs(li) {
 }
 function getLocInterval(li, startTime, endTime) {
   const n = S_locSplit[li] || 0;
+  if (n === 0) return 20;
   const r = calcAutoInterval(n, 1);
   let interval = r.interval || 20;
-  // 총 시간 ÷ 팀 수보다 간격이 크면 모든 팀이 못 나옴 → 간격 줄이기
-  if (startTime && endTime && n > 0) {
+  if (startTime && endTime) {
     const totalMins = toM(endTime) - toM(startTime);
-    const maxInterval = Math.floor(totalMins / n);
-    if (maxInterval < interval) {
-      interval = Math.max(5, Math.floor(maxInterval / 5) * 5);
+    if (totalMins > 0) {
+      // 간격을 5분씩 줄여서 모든 팀(n팀)이 최소 1슬롯 받을 때까지 반복
+      while (interval > 5 && Math.ceil(totalMins / interval) < n) {
+        interval -= 5;
+      }
     }
   }
   return interval;
@@ -1978,8 +1980,13 @@ async function doAssignWithInterval() {
   for (let li = 0; li < locs.length; li++) {
     const locPairs = getLocPairs(li);
     if (!locPairs.length) continue;
-    const interval = intervals[li];
-    const slots = getSlots(ev.start_time, ev.end_time, interval);
+    let interval = intervals[li];
+    let slots = getSlots(ev.start_time, ev.end_time, interval);
+    // 혹시 슬롯 수가 팀 수보다 적으면 간격 줄여서 재계산
+    while (slots.length < locPairs.length && interval > 5) {
+      interval -= 5;
+      slots = getSlots(ev.start_time, ev.end_time, interval);
+    }
     for (let si = 0; si < slots.length; si++) {
       const mems = locPairs[si % locPairs.length].names;
       rows.push({ event_id: ev.id, location_index: li, slot_index: si, member_names: mems });
