@@ -1076,6 +1076,10 @@ async function saveEv() {
       date, title, locations: locs, start_time: start, end_time: end
     }).eq('id', evId);
     if (error) { alert('오류: ' + error.message); return; }
+    // 현재 배정 탭에 열린 이벤트면 S.selEv 갱신
+    if (S.selEv?.id === evId) {
+      S.selEv = { ...S.selEv, date, title, locations: locs, start_time: start, end_time: end };
+    }
   } else {
     const repeat = document.getElementById('ev-repeat')?.checked;
     const repeatCount = parseInt(document.getElementById('ev-repeat-count')?.value) || 1;
@@ -1951,6 +1955,8 @@ function calcAutoInterval(totalPairs, numLocations) {
 async function doAssignWithInterval() {
   const ev = S.selEv;
   const locs = (ev.locations && ev.locations.length) ? ev.locations : ['전시대'];
+  // S_locSplit이 현재 짝 수와 맞지 않으면 재계산
+  if (S_locSplit.reduce((a,b)=>a+b,0) !== S_pairs.length) loadLocSplit();
   const intervals = locs.map((_, li) => getLocInterval(li));
   // 단일 장소는 ev.interval_minutes 저장 (renderSlots 등에서 사용)
   if (locs.length === 1 && intervals[0] !== ev.interval_minutes) {
